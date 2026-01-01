@@ -19,3 +19,12 @@ class Range:
 
     min: float
     max: float
+
+
+@dataclass
+class Unique:
+    """Validate that column values are unique (no duplicates).
+
+    Example:
+        user_id: Annotated[int, Unique()]
+    """
