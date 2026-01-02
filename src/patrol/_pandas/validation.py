@@ -81,6 +81,16 @@ def _check_column_type(df: pd.DataFrame, col_name: str, expected_type: type) -> 
 
     base_type, validators, is_optional = _extract_type_and_validators(expected_type)
 
+    if isinstance(base_type, type) and issubclass(base_type, pd.api.extensions.ExtensionDtype):
+        col_dtype = df[col_name].dtype
+        if type(col_dtype) is not base_type:
+            base_tname = base_type.__name__
+            col_tname = type(col_dtype).__name__
+            raise TypeError(f"Column '{col_name}' expected {base_tname}, got {col_tname}")
+        for validator in validators:
+            apply_validator(df[col_name], validator, col_name)
+        return
+
     if base_type not in TYPE_CHECKERS:
         raise ValueError(f"Unsupported type: {base_type}")
 
@@ -88,9 +98,9 @@ def _check_column_type(df: pd.DataFrame, col_name: str, expected_type: type) -> 
     col_dtype = df[col_name].dtype
 
     if not type_checker(df[col_name]):
-        if is_optional and isinstance(base_type, int) and pd.api.types.is_float_dtype(col_dtype):
+        if is_optional and base_type is int and pd.api.types.is_float_dtype(col_dtype):
             pass
-        elif is_optional and isinstance(base_type, str) and isinstance(col_dtype, object):
+        elif is_optional and base_type is str and isinstance(col_dtype, object):
             pass
         else:
             raise TypeError(f"Column '{col_name}' expected {base_type.__name__}, got {col_dtype}")

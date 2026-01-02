@@ -185,3 +185,28 @@ def test_dataframe_optional_type_raises_on_wrong_type():
     )
     with pytest.raises(TypeError, match="Column 'age' expected int"):
         DataFrame[OptionalSchema](df)
+
+
+class PolarsDtypeSchema(Protocol):
+    category: pl.Categorical
+    value: pl.Int64
+
+
+def test_dataframe_polars_categorical_dtype():
+    """DataFrame accepts polars Categorical dtype"""
+    df = pl.DataFrame(
+        {
+            "category": pl.Series(["A", "B", "A"], dtype=pl.Categorical),
+            "value": pl.Series([1, 2, None], dtype=pl.Int64),
+        }
+    )
+    result = DataFrame[PolarsDtypeSchema](df)
+    assert isinstance(result, pl.DataFrame)
+    assert result.equals(df)
+
+
+def test_dataframe_polars_dtype_raises_on_wrong_type():
+    """DataFrame raises error when polars dtype doesn't match"""
+    df = pl.DataFrame({"category": ["A", "B", "A"], "value": [1, 2, 3]})
+    with pytest.raises(TypeError, match="Column 'category' expected Categorical"):
+        DataFrame[PolarsDtypeSchema](df)

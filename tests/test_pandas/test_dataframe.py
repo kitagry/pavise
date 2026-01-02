@@ -30,6 +30,11 @@ class OptionalSchema(Protocol):
     age: Optional[int]
 
 
+class PandasDtypeSchema(Protocol):
+    category: pd.CategoricalDtype
+    value: pd.Int64Dtype
+
+
 def test_dataframe_class_getitem_returns_class():
     """DataFrame[Schema] returns a class"""
     type_of = DataFrame[SimpleSchema]
@@ -173,3 +178,23 @@ def test_dataframe_optional_type_raises_on_wrong_type():
     )
     with pytest.raises(TypeError, match="Column 'age' expected int"):
         DataFrame[OptionalSchema](df)
+
+
+def test_dataframe_pandas_categorical_dtype():
+    """DataFrame accepts pandas CategoricalDtype"""
+    df = pd.DataFrame(
+        {
+            "category": pd.Categorical(["A", "B", "A"]),
+            "value": pd.array([1, 2, None], dtype=pd.Int64Dtype()),
+        }
+    )
+    result = DataFrame[PandasDtypeSchema](df)
+    assert isinstance(result, pd.DataFrame)
+    pd.testing.assert_frame_equal(result, df)
+
+
+def test_dataframe_pandas_dtype_raises_on_wrong_type():
+    """DataFrame raises error when pandas dtype doesn't match"""
+    df = pd.DataFrame({"category": ["A", "B", "A"], "value": [1, 2, 3]})
+    with pytest.raises(TypeError, match="Column 'category' expected CategoricalDtype"):
+        DataFrame[PandasDtypeSchema](df)

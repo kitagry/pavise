@@ -95,6 +95,14 @@ def _check_column_type(df: pl.DataFrame, col_name: str, expected_type: type) -> 
 
     base_type, validators, is_optional = _extract_type_and_validators(expected_type)
 
+    if isinstance(base_type, type) and issubclass(base_type, pl.DataType):
+        col_dtype = df[col_name].dtype
+        if col_dtype != base_type:
+            raise TypeError(f"Column '{col_name}' expected {base_type.__name__}, got {col_dtype}")
+        for validator in validators:
+            apply_validator(df[col_name], validator, col_name)
+        return
+
     if base_type not in TYPE_CHECKERS:
         raise ValueError(f"Unsupported type: {base_type}")
 
