@@ -213,5 +213,7 @@ def test_dataframe_polars_categorical_dtype():
 def test_dataframe_polars_dtype_raises_on_wrong_type():
     """DataFrame raises error when polars dtype doesn't match"""
     df = pl.DataFrame({"category": ["A", "B", "A"], "value": [1, 2, 3]})
-    with pytest.raises(ValidationError, match="Column 'category': expected Categorical, got String"):
+    with pytest.raises(
+        ValidationError, match="Column 'category': expected Categorical, got String"
+    ):
         DataFrame[PolarsDtypeSchema](df)

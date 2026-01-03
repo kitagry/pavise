@@ -1,5 +1,7 @@
 """Custom exceptions for patrol."""
 
+from __future__ import annotations
+
 from typing import Any, Callable
 
 from typing_extensions import Self
@@ -35,7 +37,7 @@ class ValidationError(PatrolError):
         self.invalid_samples = invalid_samples or []
 
     @classmethod
-    def from_column_and_samples(
+    def new_with_samples(
         cls,
         col_name: str,
         base_message: str,
@@ -57,6 +59,5 @@ class ValidationError(PatrolError):
         """
         msg = base_message
         msg += f"\n\nSample invalid values (showing first {len(samples)} of {total_invalid}):"
-        for idx, val in samples:
-            msg += f"\n  Row {idx}: {format_value(val)}"
+        msg += "".join([f"\n  Row {idx}: {format_value(val)}" for idx, val in samples])
         return cls(msg, column_name=col_name, invalid_samples=samples)

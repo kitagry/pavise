@@ -14,10 +14,20 @@ MAX_SAMPLE_SIZE = 5
 # Maximum number of rows to check for type validation (performance optimization)
 MAX_CHECK_ROWS = 100
 
+
+def type_check_str(df: pd.Series | pd.Index) -> bool:
+    df = pd.Series(df)
+    if pd.api.types.is_string_dtype(df):
+        return True
+    elif df.dtype == object:
+        return bool(df.apply(lambda x: isinstance(x, str) or pd.isna(x)).all())
+    return False
+
+
 TYPE_CHECKERS = {
     int: pd.api.types.is_integer_dtype,
     float: pd.api.types.is_float_dtype,
-    str: pd.api.types.is_string_dtype,
+    str: type_check_str,
     bool: pd.api.types.is_bool_dtype,
     datetime: pd.api.types.is_datetime64_any_dtype,
     date: pd.api.types.is_datetime64_any_dtype,
@@ -232,7 +242,7 @@ def _raise_type_error_with_samples(
             if len(samples) < MAX_SAMPLE_SIZE:
                 samples.append((idx, val))
 
-    raise ValidationError.from_column_and_samples(
+    raise ValidationError.new_with_samples(
         col_name,
         f"expected {expected_type.__name__}, got {actual_dtype}",
         samples,
@@ -272,13 +282,10 @@ def _check_column_type(df: pd.DataFrame, col_name: str, expected_type: type) -> 
     type_checker = TYPE_CHECKERS[base_type]
     col_dtype = df[col_name].dtype
 
+    if not is_optional and df[col_name].isna().any():
+        raise ValidationError("is non-optional but contains null values", column_name=col_name)
     if not type_checker(df[col_name]):
-        if is_optional and base_type is int and pd.api.types.is_float_dtype(col_dtype):
-            pass
-        elif is_optional and base_type is str and isinstance(col_dtype, object):
-            pass
-        else:
-            _raise_type_error_with_samples(df, col_name, base_type, col_dtype)
+        _raise_type_error_with_samples(df, col_name, base_type, col_dtype)
 
     for validator in validators:
         apply_validator(df[col_name], validator, col_name)

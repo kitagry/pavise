@@ -69,7 +69,7 @@ def _validate_range(series: "pl.Series", validator: Range, col_name: str) -> Non
         return
 
     samples, total_invalid = _get_invalid_samples(series, invalid_mask)
-    raise ValidationError.from_column_and_samples(
+    raise ValidationError.new_with_samples(
         col_name,
         f"values must be in range [{validator.min}, {validator.max}]",
         samples,
@@ -85,7 +85,7 @@ def _validate_unique(series: "pl.Series", col_name: str) -> None:
         return
 
     samples, total_invalid = _get_invalid_samples(series, duplicated_mask)
-    raise ValidationError.from_column_and_samples(
+    raise ValidationError.new_with_samples(
         col_name,
         "contains duplicate values",
         samples,
@@ -101,7 +101,7 @@ def _validate_in(series: "pl.Series", validator: In, col_name: str) -> None:
         return
 
     samples, total_invalid = _get_invalid_samples(series, invalid_mask)
-    raise ValidationError.from_column_and_samples(
+    raise ValidationError.new_with_samples(
         col_name, "contains values not in allowed values", samples, total_invalid
     )
 
@@ -113,7 +113,7 @@ def _validate_regex(series: "pl.Series", validator: Regex, col_name: str) -> Non
         return
 
     samples, total_invalid = _get_invalid_samples(series, invalid_mask)
-    raise ValidationError.from_column_and_samples(
+    raise ValidationError.new_with_samples(
         col_name, "contains values that don't match the pattern", samples, total_invalid
     )
 
@@ -125,7 +125,7 @@ def _validate_minlen(series: "pl.Series", validator: MinLen, col_name: str) -> N
         return
 
     samples, total_invalid = _get_invalid_samples(series, invalid_mask)
-    raise ValidationError.from_column_and_samples(
+    raise ValidationError.new_with_samples(
         col_name,
         "contains strings shorter than minimum length",
         samples,
@@ -141,7 +141,7 @@ def _validate_maxlen(series: "pl.Series", validator: MaxLen, col_name: str) -> N
         return
 
     samples, total_invalid = _get_invalid_samples(series, invalid_mask)
-    raise ValidationError.from_column_and_samples(
+    raise ValidationError.new_with_samples(
         col_name,
         "contains strings longer than maximum length",
         samples,

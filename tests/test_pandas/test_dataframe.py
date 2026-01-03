@@ -143,7 +143,9 @@ def test_dataframe_timedelta_type_raises_on_wrong_type():
 def test_dataframe_raises_on_null_values_in_int_column():
     """DataFrame raises error when int column contains null values"""
     df = pd.DataFrame({"a": [1, 2, None]})
-    with pytest.raises(ValidationError, match="Column 'a': expected int"):
+    with pytest.raises(
+        ValidationError, match="Column 'a': is non-optional but contains null values"
+    ):
         DataFrame[SimpleSchema](df)
 
 
@@ -155,7 +157,9 @@ def test_dataframe_raises_on_null_values_in_str_column():
         a: int
         b: str
 
-    with pytest.raises(ValidationError, match="Column 'b': expected str, got object"):
+    with pytest.raises(
+        ValidationError, match="Column 'b': is non-optional but contains null values"
+    ):
         DataFrame[SchemaWithStr](df)
 
 
@@ -163,10 +167,21 @@ def test_dataframe_optional_int_accepts_null_values():
     """DataFrame with Optional[int] accepts null values"""
     df = pd.DataFrame(
         {"user_id": [1, 2, 3], "email": ["a@b.com", None, "c@d.com"], "age": [20, None, 30]}
-    )
+    ).astype({"age": "Int64"})
     result = DataFrame[OptionalSchema](df)
     assert isinstance(result, pd.DataFrame)
     pd.testing.assert_frame_equal(result, df)
+
+
+def test_dataframe_optional_str_contains_int():
+    """DataFrame with Optional[int] accepts null values"""
+    df = pd.DataFrame({"email": ["a@b.com", None, 2]})
+
+    class OptionalStrSchema(Protocol):
+        email: Optional[str]
+
+    with pytest.raises(ValidationError, match="Column 'email': expected str, got object"):
+        DataFrame[OptionalStrSchema](df)
 
 
 def test_dataframe_optional_type_raises_on_wrong_type():

@@ -117,7 +117,7 @@ def _raise_type_error_with_samples(
             if len(samples) < MAX_SAMPLE_SIZE:
                 samples.append((i, val))
 
-    raise ValidationError.from_column_and_samples(
+    raise ValidationError.new_with_samples(
         col_name,
         f"expected {expected_type.__name__}, got {actual_dtype}",
         samples,
