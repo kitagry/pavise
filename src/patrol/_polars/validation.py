@@ -117,21 +117,18 @@ def _raise_type_error_with_samples(
             if len(samples) < MAX_SAMPLE_SIZE:
                 samples.append((i, val))
 
-    msg = f"Column '{col_name}' expected {expected_type.__name__}, got {actual_dtype}"
-
-    if samples:
-        total_str = f"{total_invalid}+" if total_invalid >= MAX_CHECK_ROWS else str(total_invalid)
-        msg += f"\n\nSample invalid values (showing first {len(samples)} of {total_str}):"
-        for idx, val in samples:
-            msg += f"\n  Row {idx}: {repr(val)} ({type(val).__name__})"
-
-    raise ValidationError(msg, column_name=col_name, invalid_samples=samples)
+    raise ValidationError.from_column_and_samples(
+        col_name,
+        f"expected {expected_type.__name__}, got {actual_dtype}",
+        samples,
+        total_invalid,
+    )
 
 
 def _check_column_exists(df: pl.DataFrame, col_name: str) -> None:
     """Check if a column exists in the DataFrame."""
     if col_name not in df.columns:
-        raise ValidationError(f"Missing column: {col_name}", column_name=col_name)
+        raise ValidationError("missing", column_name=col_name)
 
 
 def _check_column_type(df: pl.DataFrame, col_name: str, expected_type: type) -> None:
@@ -144,7 +141,7 @@ def _check_column_type(df: pl.DataFrame, col_name: str, expected_type: type) -> 
         col_dtype = df[col_name].dtype
         if col_dtype != base_type:
             raise ValidationError(
-                f"Column '{col_name}' expected {base_type.__name__}, got {col_dtype}",
+                f"expected {base_type.__name__}, got {col_dtype}",
                 column_name=col_name,
             )
         for validator in validators:
@@ -152,7 +149,7 @@ def _check_column_type(df: pl.DataFrame, col_name: str, expected_type: type) -> 
         return
 
     if base_type not in TYPE_CHECKERS:
-        raise ValidationError(f"Unsupported type: {base_type}", column_name=col_name)
+        raise ValidationError(f"unsupported type: {base_type}", column_name=col_name)
 
     type_checker = TYPE_CHECKERS[base_type]
     col_dtype = df[col_name].dtype
@@ -160,9 +157,7 @@ def _check_column_type(df: pl.DataFrame, col_name: str, expected_type: type) -> 
         _raise_type_error_with_samples(df, col_name, base_type, col_dtype)
 
     if not is_optional and df[col_name].null_count() > 0:
-        raise ValidationError(
-            f"Column '{col_name}' is non-optional but contains null values", column_name=col_name
-        )
+        raise ValidationError("is non-optional but contains null values", column_name=col_name)
 
     for validator in validators:
         apply_validator(df[col_name], validator, col_name)

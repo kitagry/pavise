@@ -23,11 +23,14 @@ class ValidationError(PatrolError):
 
     def __init__(
         self,
-        message: str,
+        base_message: str,
         column_name: str | None = None,
         invalid_samples: list[tuple] | None = None,
     ):
-        super().__init__(message)
+        msg = base_message
+        if column_name:
+            msg = f"Column '{column_name}': {msg}"
+        super().__init__(msg)
         self.column_name = column_name
         self.invalid_samples = invalid_samples or []
 
@@ -38,7 +41,7 @@ class ValidationError(PatrolError):
         base_message: str,
         samples: list[tuple],
         total_invalid: int,
-        format_value: Callable[[Any], str] | None = None,
+        format_value: Callable[[Any], str] = repr,
     ) -> Self:
         """
         Create a ValidationError with a formatted message including sample invalid values.
@@ -52,10 +55,7 @@ class ValidationError(PatrolError):
         Returns:
         Formatted error message
         """
-        if format_value is None:
-            format_value = repr
-
-        msg = f"Column '{col_name}': {base_message}"
+        msg = base_message
         msg += f"\n\nSample invalid values (showing first {len(samples)} of {total_invalid}):"
         for idx, val in samples:
             msg += f"\n  Row {idx}: {format_value(val)}"

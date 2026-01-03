@@ -54,14 +54,14 @@ def test_dataframe_with_schema_validates_correct_dataframe():
 def test_dataframe_with_schema_raises_on_missing_column():
     """DataFrame[Schema](df) raises error for missing column"""
     df = pd.DataFrame({"b": [1, 2, 3]})
-    with pytest.raises(ValidationError, match="Missing column: a"):
+    with pytest.raises(ValidationError, match="Column 'a': missing"):
         DataFrame[SimpleSchema](df)
 
 
 def test_dataframe_with_schema_raises_on_wrong_type():
     """DataFrame[Schema](df) raises error for wrong type"""
     df = pd.DataFrame({"a": ["x", "y", "z"]})
-    with pytest.raises(ValidationError, match="Column 'a' expected int"):
+    with pytest.raises(ValidationError, match="Column 'a': expected int"):
         DataFrame[SimpleSchema](df)
 
 
@@ -110,7 +110,7 @@ def test_dataframe_datetime_type_raises_on_wrong_type():
             "duration": pd.to_timedelta(["1 days", "2 days"]),
         }
     )
-    with pytest.raises(ValidationError, match="Column 'created_at' expected datetime"):
+    with pytest.raises(ValidationError, match="Column 'created_at': expected datetime"):
         DataFrame[DatetimeSchema](df)
 
 
@@ -123,7 +123,7 @@ def test_dataframe_date_type_raises_on_wrong_type():
             "duration": pd.to_timedelta(["1 days", "2 days"]),
         }
     )
-    with pytest.raises(ValidationError, match="Column 'event_date' expected date"):
+    with pytest.raises(ValidationError, match="Column 'event_date': expected date"):
         DataFrame[DatetimeSchema](df)
 
 
@@ -136,14 +136,14 @@ def test_dataframe_timedelta_type_raises_on_wrong_type():
             "duration": [1.5, 2.5],  # float instead of timedelta
         }
     )
-    with pytest.raises(ValidationError, match="Column 'duration' expected timedelta"):
+    with pytest.raises(ValidationError, match="Column 'duration': expected timedelta"):
         DataFrame[DatetimeSchema](df)
 
 
 def test_dataframe_raises_on_null_values_in_int_column():
     """DataFrame raises error when int column contains null values"""
     df = pd.DataFrame({"a": [1, 2, None]})
-    with pytest.raises(ValidationError, match="Column 'a' expected int"):
+    with pytest.raises(ValidationError, match="Column 'a': expected int"):
         DataFrame[SimpleSchema](df)
 
 
@@ -155,7 +155,7 @@ def test_dataframe_raises_on_null_values_in_str_column():
         a: int
         b: str
 
-    with pytest.raises(ValidationError, match="Column 'b' expected str"):
+    with pytest.raises(ValidationError, match="Column 'b': expected str, got object"):
         DataFrame[SchemaWithStr](df)
 
 
@@ -178,7 +178,7 @@ def test_dataframe_optional_type_raises_on_wrong_type():
             "age": ["20", "25", "30"],
         }
     )
-    with pytest.raises(ValidationError, match="Column 'age' expected int"):
+    with pytest.raises(ValidationError, match="Column 'age': expected int, got object"):
         DataFrame[OptionalSchema](df)
 
 
@@ -198,7 +198,7 @@ def test_dataframe_pandas_categorical_dtype():
 def test_dataframe_pandas_dtype_raises_on_wrong_type():
     """DataFrame raises error when pandas dtype doesn't match"""
     df = pd.DataFrame({"category": ["A", "B", "A"], "value": [1, 2, 3]})
-    with pytest.raises(ValidationError, match="Column 'category' expected CategoricalDtype"):
+    with pytest.raises(ValidationError, match="Column 'category': expected CategoricalDtype"):
         DataFrame[PandasDtypeSchema](df)
 
 

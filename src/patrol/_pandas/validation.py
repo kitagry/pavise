@@ -145,7 +145,7 @@ def _check_index_type(df: pd.DataFrame, expected_type: type) -> None:
                 raise ValidationError(f"Index name expected '{index_name}', got {df.index.name!r}")
 
         if base_type not in TYPE_CHECKERS:
-            raise ValidationError(f"Unsupported type: {base_type}")
+            raise ValidationError(f"unsupported type: {base_type}")
 
         type_checker = TYPE_CHECKERS[base_type]
         if not type_checker(df.index):
@@ -232,21 +232,19 @@ def _raise_type_error_with_samples(
             if len(samples) < MAX_SAMPLE_SIZE:
                 samples.append((idx, val))
 
-    msg = f"Column '{col_name}' expected {expected_type.__name__}, got {actual_dtype}"
-
-    if samples:
-        total_str = f"{total_invalid}+" if total_invalid >= MAX_CHECK_ROWS else str(total_invalid)
-        msg += f"\n\nSample invalid values (showing first {len(samples)} of {total_str}):"
-        for idx, val in samples:
-            msg += f"\n  Row {idx}: {repr(val)} ({type(val).__name__})"
-
-    raise ValidationError(msg, column_name=col_name, invalid_samples=samples)
+    raise ValidationError.from_column_and_samples(
+        col_name,
+        f"expected {expected_type.__name__}, got {actual_dtype}",
+        samples,
+        total_invalid,
+        repr,
+    )
 
 
 def _check_column_exists(df: pd.DataFrame, col_name: str) -> None:
     """Check if a column exists in the DataFrame."""
     if col_name not in df.columns:
-        raise ValidationError(f"Missing column: {col_name}", column_name=col_name)
+        raise ValidationError("missing", column_name=col_name)
 
 
 def _check_column_type(df: pd.DataFrame, col_name: str, expected_type: type) -> None:
@@ -261,7 +259,7 @@ def _check_column_type(df: pd.DataFrame, col_name: str, expected_type: type) -> 
             base_tname = base_type.__name__
             col_tname = type(col_dtype).__name__
             raise ValidationError(
-                f"Column '{col_name}' expected {base_tname}, got {col_tname}",
+                f"expected {base_tname}, got {col_tname}",
                 column_name=col_name,
             )
         for validator in validators:
@@ -269,7 +267,7 @@ def _check_column_type(df: pd.DataFrame, col_name: str, expected_type: type) -> 
         return
 
     if base_type not in TYPE_CHECKERS:
-        raise ValidationError(f"Unsupported type: {base_type}", column_name=col_name)
+        raise ValidationError(f"unsupported type: {base_type}", column_name=col_name)
 
     type_checker = TYPE_CHECKERS[base_type]
     col_dtype = df[col_name].dtype
