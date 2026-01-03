@@ -2,6 +2,12 @@
 
 DataFrame validation library using Python Protocol for structural subtyping.
 
+## About the Name
+
+A **pavise** was a large shield used by medieval crossbowmen, big enough to cover the entire body and provide strong protection.
+
+Like its namesake, this library serves as a shield for your data. Whether you're working with small datasets or big data, pavise protects your code with type safety and validation.
+
 ## Features
 
 - Use Python Protocol to define DataFrame schemas
@@ -29,84 +35,46 @@ pip install pavise[all]
 
 ### Pandas Backend
 
-#### Static Type Checking Only (Recommended)
-
 ```python
 from typing import Protocol
+import pandas as pd
 from pavise.pandas import DataFrame
 
 class UserSchema(Protocol):
     name: str
     age: int
 
+# Runtime validation when creating DataFrame[Schema]
+raw_df = pd.DataFrame({'name': ['Alice', 'Bob'], 'age': [30, 17]})
+validated_df = DataFrame[UserSchema](raw_df)  # Validates column types at runtime
+
+# Type hints work with static type checkers (mypy, pyright, etc.)
 def process_users(df: DataFrame[UserSchema]) -> DataFrame[UserSchema]:
-    # mypy/pyrefly will check types, no runtime validation
     return df[df['age'] >= 18]
 
-# Use regular pandas DataFrame
-import pandas as pd
-df = pd.DataFrame({'name': ['Alice', 'Bob'], 'age': [30, 17]})
-result = process_users(df)
-```
-
-#### Runtime Validation (Explicit)
-
-```python
-from typing import Protocol
-import pandas as pd
-from pavise.pandas import DataFrame
-
-class UserSchema(Protocol):
-    name: str
-    age: int
-
-def load_users(raw_df: pd.DataFrame) -> DataFrame[UserSchema]:
-    # Validate at runtime when needed
-    return DataFrame[UserSchema](raw_df)
-
-raw_df = pd.DataFrame({'name': ['Alice', 'Bob'], 'age': [30, 17]})
-validated_df = load_users(raw_df)  # Runtime validation occurs here
+result = process_users(validated_df)
 ```
 
 ### Polars Backend
 
-#### Static Type Checking Only (Recommended)
-
 ```python
 from typing import Protocol
+import polars as pl
 from pavise.polars import DataFrame
 
 class UserSchema(Protocol):
     name: str
     age: int
 
+# Runtime validation when creating DataFrame[Schema]
+raw_df = pl.DataFrame({'name': ['Alice', 'Bob'], 'age': [30, 17]})
+validated_df = DataFrame[UserSchema](raw_df)  # Validates column types at runtime
+
+# Type hints work with static type checkers (mypy, pyright, etc.)
 def process_users(df: DataFrame[UserSchema]) -> DataFrame[UserSchema]:
-    # mypy/pyrefly will check types, no runtime validation
     return df.filter(df['age'] >= 18)
 
-# Use regular polars DataFrame
-import polars as pl
-df = pl.DataFrame({'name': ['Alice', 'Bob'], 'age': [30, 17]})
-result = process_users(df)
-```
-
-#### Runtime Validation (Explicit)
-
-```python
-from typing import Protocol
-import polars as pl
-from pavise.polars import DataFrame
-
-class UserSchema(Protocol):
-    name: str
-    age: int
-
-def load_users(raw_df: pl.DataFrame) -> DataFrame[UserSchema]:
-    # Validate at runtime when needed
-    return DataFrame[UserSchema](raw_df)
-
-raw_df = pl.DataFrame({'name': ['Alice', 'Bob'], 'age': [30, 17]})
-validated_df = load_users(raw_df)  # Runtime validation occurs here
+result = process_users(validated_df)
 ```
 
 ### Structural Subtyping
@@ -127,10 +95,10 @@ def process_user(df: DataFrame[UserSchema]) -> None:
     print(df['name'])
 
 # This works! UserWithEmailSchema has all required columns of UserSchema
-df: DataFrame[UserWithEmailSchema] = pd.DataFrame({
+df = DataFrame[UserWithEmailSchema](pd.DataFrame({
     'name': ['Alice'],
     'email': ['alice@example.com']
-})
+}))
 process_user(df)  # OK - covariant type parameter
 ```
 
