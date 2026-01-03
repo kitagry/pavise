@@ -7,8 +7,12 @@ on:
 
 jobs:
   deploy:
-
     runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+    environment:
+      name: pypi
+      url: https://pypi.org/p/pavise
 
     steps:
     - uses: actions/checkout@v4
@@ -20,3 +24,12 @@ jobs:
       run: |
         uv build
         uv publish
+
+    - name: upload windows dists
+      uses: actions/upload-artifact@v4
+      with:
+        name: release-dists
+        path: dist/
+
+    - name: Publish package distributions to PyPI
+      uses: pypa/gh-action-pypi-publish@release/v1
