@@ -3,6 +3,7 @@ from typing import Annotated, Protocol
 import pandas as pd
 import pytest
 
+from patrol.exceptions import ValidationError
 from patrol.pandas import DataFrame
 from patrol.validators import In, MaxLen, MinLen, Range, Regex, Unique
 
@@ -41,14 +42,14 @@ def test_range_validator_accepts_values_within_range():
 def test_range_validator_rejects_values_below_minimum():
     """Range validator rejects values below the minimum"""
     df = pd.DataFrame({"age": [25, -5, 30]})
-    with pytest.raises(ValueError, match="age.*range"):
+    with pytest.raises(ValidationError, match="age.*range"):
         DataFrame[AgeSchema](df)
 
 
 def test_range_validator_rejects_values_above_maximum():
     """Range validator rejects values above the maximum"""
     df = pd.DataFrame({"age": [25, 200, 30]})
-    with pytest.raises(ValueError, match="age.*range"):
+    with pytest.raises(ValidationError, match="age.*range"):
         DataFrame[AgeSchema](df)
 
 
@@ -62,7 +63,7 @@ def test_unique_validator_accepts_unique_values():
 def test_unique_validator_rejects_duplicate_values():
     """Unique validator rejects columns with duplicate values"""
     df = pd.DataFrame({"user_id": [1, 2, 2, 3]})
-    with pytest.raises(ValueError, match="user_id.*duplicate"):
+    with pytest.raises(ValidationError, match="user_id.*duplicate"):
         DataFrame[UserIdSchema](df)
 
 
@@ -76,7 +77,7 @@ def test_in_validator_accepts_allowed_values():
 def test_in_validator_rejects_disallowed_values():
     """In validator rejects values not in the allowed set"""
     df = pd.DataFrame({"status": ["pending", "invalid", "approved"]})
-    with pytest.raises(ValueError, match="status.*allowed values"):
+    with pytest.raises(ValidationError, match="status.*allowed values"):
         DataFrame[StatusSchema](df)
 
 
@@ -90,7 +91,7 @@ def test_regex_validator_accepts_matching_values():
 def test_regex_validator_rejects_non_matching_values():
     """Regex validator rejects values that don't match the pattern"""
     df = pd.DataFrame({"email": ["user@example.com", "invalid-email", "test@test.org"]})
-    with pytest.raises(ValueError, match="email.*pattern"):
+    with pytest.raises(ValidationError, match="email.*pattern"):
         DataFrame[EmailSchema](df)
 
 
@@ -104,7 +105,7 @@ def test_minlen_validator_accepts_valid_length():
 def test_minlen_validator_rejects_short_strings():
     """MinLen validator rejects strings that are too short"""
     df = pd.DataFrame({"username": ["alice", "ab", "charlie"]})
-    with pytest.raises(ValueError, match="username.*length"):
+    with pytest.raises(ValidationError, match="username.*length"):
         DataFrame[UsernameMinLenSchema](df)
 
 
@@ -118,5 +119,5 @@ def test_maxlen_validator_accepts_valid_length():
 def test_maxlen_validator_rejects_long_strings():
     """MaxLen validator rejects strings that are too long"""
     df = pd.DataFrame({"username": ["alice", "thisusernameiswaytoolongtobevalid", "bob"]})
-    with pytest.raises(ValueError, match="username.*length"):
+    with pytest.raises(ValidationError, match="username.*length"):
         DataFrame[UsernameMaxLenSchema](df)

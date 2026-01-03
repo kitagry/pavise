@@ -2,19 +2,65 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import date, datetime, timedelta
-from typing import Annotated, Union, get_args, get_origin, get_type_hints
+from typing import Annotated, Callable, Union, get_args, get_origin, get_type_hints
 
+import numpy as np
 import pandas as pd
 
+from patrol.exceptions import ValidationError
+
+# Maximum number of invalid sample values to show in error messages
+MAX_SAMPLE_SIZE = 5
+
+
+@dataclass
+class TypeChecker:
+    """Type checker with both dtype-level and value-level validation."""
+
+    dtype: Callable[[pd.Series | pd.Index], bool]  # Check dtype of entire Series
+    value: Callable[[object], bool]  # Check individual values
+
+
+def type_check_str(df: pd.Series | pd.Index) -> bool:
+    df = pd.Series(df)
+    if pd.api.types.is_string_dtype(df):
+        return True
+    elif df.dtype == object:
+        return bool(df.apply(lambda x: isinstance(x, str) or pd.isna(x)).all())
+    return False
+
+
 TYPE_CHECKERS = {
-    int: pd.api.types.is_integer_dtype,
-    float: pd.api.types.is_float_dtype,
-    str: pd.api.types.is_string_dtype,
-    bool: pd.api.types.is_bool_dtype,
-    datetime: pd.api.types.is_datetime64_any_dtype,
-    date: pd.api.types.is_datetime64_any_dtype,
-    timedelta: pd.api.types.is_timedelta64_dtype,
+    int: TypeChecker(
+        dtype=pd.api.types.is_integer_dtype,
+        value=lambda x: isinstance(x, (int, np.integer)) or pd.isna(x),
+    ),
+    float: TypeChecker(
+        dtype=pd.api.types.is_float_dtype,
+        value=lambda x: isinstance(x, (float, np.floating)) or pd.isna(x),
+    ),
+    str: TypeChecker(
+        dtype=type_check_str,
+        value=lambda x: isinstance(x, str) or pd.isna(x),
+    ),
+    bool: TypeChecker(
+        dtype=pd.api.types.is_bool_dtype,
+        value=lambda x: isinstance(x, (bool, np.bool_)) or pd.isna(x),
+    ),
+    datetime: TypeChecker(
+        dtype=pd.api.types.is_datetime64_any_dtype,
+        value=lambda x: isinstance(x, (pd.Timestamp, datetime)) or pd.isna(x),
+    ),
+    date: TypeChecker(
+        dtype=pd.api.types.is_datetime64_any_dtype,
+        value=lambda x: isinstance(x, (pd.Timestamp, datetime, date)) or pd.isna(x),
+    ),
+    timedelta: TypeChecker(
+        dtype=pd.api.types.is_timedelta64_dtype,
+        value=lambda x: isinstance(x, (pd.Timedelta, timedelta)) or pd.isna(x),
+    ),
 }
 
 
@@ -130,19 +176,19 @@ def _check_index_type(df: pd.DataFrame, expected_type: type) -> None:
 
     if get_origin(base_type) is tuple:
         if not (index_name is None or isinstance(index_name, tuple)):
-            raise ValueError("MultiIndex must have a tuple of names specified in Annotated")
+            raise ValidationError("MultiIndex must have a tuple of names specified in Annotated")
         _check_multiindex_type(df, base_type, index_name, validators, is_optional)
     else:
         if index_name is not None:
             if df.index.name != index_name:
-                raise ValueError(f"Index name expected '{index_name}', got {df.index.name!r}")
+                raise ValidationError(f"Index name expected '{index_name}', got {df.index.name!r}")
 
         if base_type not in TYPE_CHECKERS:
-            raise ValueError(f"Unsupported type: {base_type}")
+            raise ValidationError(f"unsupported type: {base_type}")
 
-        type_checker = TYPE_CHECKERS[base_type]
-        if not type_checker(df.index):
-            raise TypeError(f"Index expected {base_type.__name__}, got {df.index.dtype}")
+        checker = TYPE_CHECKERS[base_type]
+        if not checker.dtype(df.index):
+            raise ValidationError(f"Index expected {base_type.__name__}, got {df.index.dtype}")
 
         index_series = pd.Series(df.index)
         for validator in validators:
@@ -162,28 +208,30 @@ def _check_multiindex_type(
     level_types = get_args(expected_types)
 
     if not isinstance(df.index, pd.MultiIndex):
-        raise TypeError(
+        raise ValidationError(
             f"Expected MultiIndex with {len(level_types)} levels, got {type(df.index).__name__}"
         )
 
     if len(df.index.levels) != len(level_types):
-        raise TypeError(
+        raise ValidationError(
             f"Expected MultiIndex with {len(level_types)} levels, got {len(df.index.levels)}"
         )
 
     if index_names is not None:
         if tuple(df.index.names) != index_names:
-            raise ValueError(f"Index names expected {index_names!r}, got {tuple(df.index.names)!r}")
+            raise ValidationError(
+                f"Index names expected {index_names!r}, got {tuple(df.index.names)!r}"
+            )
 
     for level_idx, level_type in enumerate(level_types):
         if level_type not in TYPE_CHECKERS:
-            raise ValueError(f"Unsupported type: {level_type}")
+            raise ValidationError(f"Unsupported type: {level_type}")
 
-        type_checker = TYPE_CHECKERS[level_type]
+        checker = TYPE_CHECKERS[level_type]
         level_data = df.index.get_level_values(level_idx)
 
-        if not type_checker(level_data):
-            raise TypeError(
+        if not checker.dtype(level_data):
+            raise ValidationError(
                 f"Index level {level_idx} expected {level_type.__name__}, got {level_data.dtype}"
             )
 
@@ -197,7 +245,7 @@ def _check_multiindex_type(
 def _check_column_exists(df: pd.DataFrame, col_name: str) -> None:
     """Check if a column exists in the DataFrame."""
     if col_name not in df.columns:
-        raise ValueError(f"Missing column: {col_name}")
+        raise ValidationError("missing", column_name=col_name)
 
 
 def _check_column_type(df: pd.DataFrame, col_name: str, expected_type: type) -> None:
@@ -211,24 +259,34 @@ def _check_column_type(df: pd.DataFrame, col_name: str, expected_type: type) -> 
         if type(col_dtype) is not base_type:
             base_tname = base_type.__name__
             col_tname = type(col_dtype).__name__
-            raise TypeError(f"Column '{col_name}' expected {base_tname}, got {col_tname}")
+            raise ValidationError(
+                f"expected {base_tname}, got {col_tname}",
+                column_name=col_name,
+            )
         for validator in validators:
             apply_validator(df[col_name], validator, col_name)
         return
 
     if base_type not in TYPE_CHECKERS:
-        raise ValueError(f"Unsupported type: {base_type}")
+        raise ValidationError(f"unsupported type: {base_type}", column_name=col_name)
 
-    type_checker = TYPE_CHECKERS[base_type]
+    checker = TYPE_CHECKERS[base_type]
     col_dtype = df[col_name].dtype
 
-    if not type_checker(df[col_name]):
-        if is_optional and base_type is int and pd.api.types.is_float_dtype(col_dtype):
-            pass
-        elif is_optional and base_type is str and isinstance(col_dtype, object):
-            pass
-        else:
-            raise TypeError(f"Column '{col_name}' expected {base_type.__name__}, got {col_dtype}")
+    if not is_optional and df[col_name].isna().any():
+        raise ValidationError("is non-optional but contains null values", column_name=col_name)
+    if not checker.dtype(df[col_name]):
+        invalid_mask = df[col_name].apply(checker.value)
+        invalid_df = df[col_name][~invalid_mask]
+        samples = [(idx, invalid_df[idx]) for idx in invalid_df.index]
+        samples = samples[:MAX_SAMPLE_SIZE]
+        raise ValidationError.new_with_samples(
+            col_name,
+            f"expected {base_type.__name__}, got {col_dtype}",
+            samples,
+            len(df[col_name][~invalid_mask]),
+            repr,
+        )
 
     for validator in validators:
         apply_validator(df[col_name], validator, col_name)

@@ -6,6 +6,7 @@ import pytest
 try:
     import polars as pl
 
+    from patrol.exceptions import ValidationError
     from patrol.polars import DataFrame
 
     POLARS_AVAILABLE = True
@@ -56,14 +57,14 @@ def test_dataframe_with_schema_validates_correct_dataframe():
 def test_dataframe_with_schema_raises_on_missing_column():
     """DataFrame[Schema](df) raises error for missing column"""
     df = pl.DataFrame({"b": [1, 2, 3]})
-    with pytest.raises(ValueError, match="Missing column: a"):
+    with pytest.raises(ValidationError, match="Column 'a': missing"):
         DataFrame[SimpleSchema](df)
 
 
 def test_dataframe_with_schema_raises_on_wrong_type():
     """DataFrame[Schema](df) raises error for wrong type"""
     df = pl.DataFrame({"a": ["x", "y", "z"]})
-    with pytest.raises(TypeError, match="Column 'a' expected int"):
+    with pytest.raises(ValidationError, match="Column 'a': expected int"):
         DataFrame[SimpleSchema](df)
 
 
@@ -115,7 +116,7 @@ def test_dataframe_datetime_type_raises_on_wrong_type():
             "duration": [timedelta(days=1), timedelta(days=2)],
         }
     )
-    with pytest.raises(TypeError, match="Column 'created_at' expected datetime"):
+    with pytest.raises(ValidationError, match="Column 'created_at': expected datetime"):
         DataFrame[DatetimeSchema](df)
 
 
@@ -128,7 +129,7 @@ def test_dataframe_date_type_raises_on_wrong_type():
             "duration": [timedelta(days=1), timedelta(days=2)],
         }
     )
-    with pytest.raises(TypeError, match="Column 'event_date' expected date"):
+    with pytest.raises(ValidationError, match="Column 'event_date': expected date"):
         DataFrame[DatetimeSchema](df)
 
 
@@ -141,14 +142,16 @@ def test_dataframe_timedelta_type_raises_on_wrong_type():
             "duration": [1.5, 2.5],  # float instead of timedelta
         }
     )
-    with pytest.raises(TypeError, match="Column 'duration' expected timedelta"):
+    with pytest.raises(ValidationError, match="Column 'duration': expected timedelta"):
         DataFrame[DatetimeSchema](df)
 
 
 def test_dataframe_raises_on_null_values_in_int_column():
     """DataFrame raises error when non-optional int column contains null values"""
     df = pl.DataFrame({"a": [1, 2, None]})
-    with pytest.raises(TypeError, match="Column 'a' is non-optional but contains null values"):
+    with pytest.raises(
+        ValidationError, match="Column 'a': is non-optional but contains null values"
+    ):
         DataFrame[SimpleSchema](df)
 
 
@@ -160,7 +163,9 @@ def test_dataframe_raises_on_null_values_in_str_column():
         a: int
         b: str
 
-    with pytest.raises(TypeError, match="Column 'b' is non-optional but contains null values"):
+    with pytest.raises(
+        ValidationError, match="Column 'b': is non-optional but contains null values"
+    ):
         DataFrame[SchemaWithStr](df)
 
 
@@ -183,7 +188,7 @@ def test_dataframe_optional_type_raises_on_wrong_type():
             "age": ["20", "25", "30"],
         }
     )
-    with pytest.raises(TypeError, match="Column 'age' expected int"):
+    with pytest.raises(ValidationError, match="Column 'age': expected int"):
         DataFrame[OptionalSchema](df)
 
 
@@ -208,5 +213,7 @@ def test_dataframe_polars_categorical_dtype():
 def test_dataframe_polars_dtype_raises_on_wrong_type():
     """DataFrame raises error when polars dtype doesn't match"""
     df = pl.DataFrame({"category": ["A", "B", "A"], "value": [1, 2, 3]})
-    with pytest.raises(TypeError, match="Column 'category' expected Categorical"):
+    with pytest.raises(
+        ValidationError, match="Column 'category': expected Categorical, got String"
+    ):
         DataFrame[PolarsDtypeSchema](df)
