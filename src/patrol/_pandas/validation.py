@@ -2,17 +2,25 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import date, datetime, timedelta
-from typing import Annotated, Union, get_args, get_origin, get_type_hints
+from typing import Annotated, Callable, Union, get_args, get_origin, get_type_hints
 
+import numpy as np
 import pandas as pd
 
 from patrol.exceptions import ValidationError
 
 # Maximum number of invalid sample values to show in error messages
 MAX_SAMPLE_SIZE = 5
-# Maximum number of rows to check for type validation (performance optimization)
-MAX_CHECK_ROWS = 100
+
+
+@dataclass
+class TypeChecker:
+    """Type checker with both dtype-level and value-level validation."""
+
+    dtype: Callable[[pd.Series | pd.Index], bool]  # Check dtype of entire Series
+    value: Callable[[object], bool]  # Check individual values
 
 
 def type_check_str(df: pd.Series | pd.Index) -> bool:
@@ -25,13 +33,34 @@ def type_check_str(df: pd.Series | pd.Index) -> bool:
 
 
 TYPE_CHECKERS = {
-    int: pd.api.types.is_integer_dtype,
-    float: pd.api.types.is_float_dtype,
-    str: type_check_str,
-    bool: pd.api.types.is_bool_dtype,
-    datetime: pd.api.types.is_datetime64_any_dtype,
-    date: pd.api.types.is_datetime64_any_dtype,
-    timedelta: pd.api.types.is_timedelta64_dtype,
+    int: TypeChecker(
+        dtype=pd.api.types.is_integer_dtype,
+        value=lambda x: isinstance(x, (int, np.integer)) or pd.isna(x),
+    ),
+    float: TypeChecker(
+        dtype=pd.api.types.is_float_dtype,
+        value=lambda x: isinstance(x, (float, np.floating)) or pd.isna(x),
+    ),
+    str: TypeChecker(
+        dtype=type_check_str,
+        value=lambda x: isinstance(x, str) or pd.isna(x),
+    ),
+    bool: TypeChecker(
+        dtype=pd.api.types.is_bool_dtype,
+        value=lambda x: isinstance(x, (bool, np.bool_)) or pd.isna(x),
+    ),
+    datetime: TypeChecker(
+        dtype=pd.api.types.is_datetime64_any_dtype,
+        value=lambda x: isinstance(x, (pd.Timestamp, datetime)) or pd.isna(x),
+    ),
+    date: TypeChecker(
+        dtype=pd.api.types.is_datetime64_any_dtype,
+        value=lambda x: isinstance(x, (pd.Timestamp, datetime, date)) or pd.isna(x),
+    ),
+    timedelta: TypeChecker(
+        dtype=pd.api.types.is_timedelta64_dtype,
+        value=lambda x: isinstance(x, (pd.Timedelta, timedelta)) or pd.isna(x),
+    ),
 }
 
 
@@ -157,8 +186,8 @@ def _check_index_type(df: pd.DataFrame, expected_type: type) -> None:
         if base_type not in TYPE_CHECKERS:
             raise ValidationError(f"unsupported type: {base_type}")
 
-        type_checker = TYPE_CHECKERS[base_type]
-        if not type_checker(df.index):
+        checker = TYPE_CHECKERS[base_type]
+        if not checker.dtype(df.index):
             raise ValidationError(f"Index expected {base_type.__name__}, got {df.index.dtype}")
 
         index_series = pd.Series(df.index)
@@ -198,10 +227,10 @@ def _check_multiindex_type(
         if level_type not in TYPE_CHECKERS:
             raise ValidationError(f"Unsupported type: {level_type}")
 
-        type_checker = TYPE_CHECKERS[level_type]
+        checker = TYPE_CHECKERS[level_type]
         level_data = df.index.get_level_values(level_idx)
 
-        if not type_checker(level_data):
+        if not checker.dtype(level_data):
             raise ValidationError(
                 f"Index level {level_idx} expected {level_type.__name__}, got {level_data.dtype}"
             )
@@ -211,44 +240,6 @@ def _check_multiindex_type(
             level_series = pd.Series(df.index.get_level_values(level_idx))
             for validator in validators:
                 apply_validator(level_series, validator, f"Index level {level_idx}")
-
-
-def _raise_type_error_with_samples(
-    df: pd.DataFrame, col_name: str, expected_type: type, actual_dtype
-) -> None:
-    """Raise TypeError with sample invalid values."""
-    samples = []
-    total_invalid = 0
-
-    for i, (idx, val) in enumerate(df[col_name].items()):
-        if i >= MAX_CHECK_ROWS:
-            break
-
-        is_invalid = False
-        if pd.notna(val):
-            if expected_type is int:
-                is_invalid = not isinstance(val, (int, bool)) or isinstance(val, bool)
-            elif expected_type is float:
-                is_invalid = not isinstance(val, (int, float, bool))
-            elif expected_type is str:
-                is_invalid = not isinstance(val, str)
-            elif expected_type is bool:
-                is_invalid = not isinstance(val, bool)
-            else:
-                is_invalid = not isinstance(val, expected_type)
-
-        if is_invalid:
-            total_invalid += 1
-            if len(samples) < MAX_SAMPLE_SIZE:
-                samples.append((idx, val))
-
-    raise ValidationError.new_with_samples(
-        col_name,
-        f"expected {expected_type.__name__}, got {actual_dtype}",
-        samples,
-        total_invalid,
-        repr,
-    )
 
 
 def _check_column_exists(df: pd.DataFrame, col_name: str) -> None:
@@ -279,13 +270,23 @@ def _check_column_type(df: pd.DataFrame, col_name: str, expected_type: type) -> 
     if base_type not in TYPE_CHECKERS:
         raise ValidationError(f"unsupported type: {base_type}", column_name=col_name)
 
-    type_checker = TYPE_CHECKERS[base_type]
+    checker = TYPE_CHECKERS[base_type]
     col_dtype = df[col_name].dtype
 
     if not is_optional and df[col_name].isna().any():
         raise ValidationError("is non-optional but contains null values", column_name=col_name)
-    if not type_checker(df[col_name]):
-        _raise_type_error_with_samples(df, col_name, base_type, col_dtype)
+    if not checker.dtype(df[col_name]):
+        invalid_mask = df[col_name].apply(checker.value)
+        invalid_df = df[col_name][~invalid_mask]
+        samples = [(idx, invalid_df[idx]) for idx in invalid_df.index]
+        samples = samples[:MAX_SAMPLE_SIZE]
+        raise ValidationError.new_with_samples(
+            col_name,
+            f"expected {base_type.__name__}, got {col_dtype}",
+            samples,
+            len(df[col_name][~invalid_mask]),
+            repr,
+        )
 
     for validator in validators:
         apply_validator(df[col_name], validator, col_name)
