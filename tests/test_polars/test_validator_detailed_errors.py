@@ -3,9 +3,9 @@ from typing import Annotated, Protocol
 import polars as pl
 import pytest
 
-from patrol.exceptions import ValidationError
-from patrol.polars import DataFrame
-from patrol.validators import In, Range, Regex, Unique
+from pavise.exceptions import ValidationError
+from pavise.polars import DataFrame
+from pavise.validators import In, Range, Regex, Unique
 
 
 class RangeSchema(Protocol):

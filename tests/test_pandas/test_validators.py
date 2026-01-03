@@ -3,9 +3,9 @@ from typing import Annotated, Protocol
 import pandas as pd
 import pytest
 
-from patrol.exceptions import ValidationError
-from patrol.pandas import DataFrame
-from patrol.validators import In, MaxLen, MinLen, Range, Regex, Unique
+from pavise.exceptions import ValidationError
+from pavise.pandas import DataFrame
+from pavise.validators import In, MaxLen, MinLen, Range, Regex, Unique
 
 
 class AgeSchema(Protocol):

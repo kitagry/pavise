@@ -3,8 +3,8 @@ from typing import Protocol
 import pandas as pd
 import pytest
 
-from patrol.exceptions import ValidationError
-from patrol.pandas import DataFrame
+from pavise.exceptions import ValidationError
+from pavise.pandas import DataFrame
 
 
 class SimpleSchema(Protocol):

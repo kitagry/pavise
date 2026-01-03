@@ -1,20 +1,17 @@
-"""Polars backend for type-parameterized DataFrame with Protocol-based schema validation."""
+"""Pandas backend for type-parameterized DataFrame with Protocol-based schema validation."""
 
 from typing import Generic, Optional, TypeVar
 
-try:
-    import polars as pl
-except ImportError:
-    raise ImportError("Polars is not installed. Install it with: pip install patrol[polars]")
+import pandas as pd
 
-from patrol._polars.validation import validate_dataframe
+from pavise._pandas.validation import validate_dataframe
 
 SchemaT_co = TypeVar("SchemaT_co", covariant=True)
 
 
-class DataFrame(pl.DataFrame, Generic[SchemaT_co]):
+class DataFrame(pd.DataFrame, Generic[SchemaT_co]):
     """
-    Type-parameterized DataFrame with runtime validation for Polars.
+    Type-parameterized DataFrame with runtime validation for pandas.
 
     Usage:
         # Static type checking only
@@ -44,14 +41,14 @@ class DataFrame(pl.DataFrame, Generic[SchemaT_co]):
         Initialize DataFrame with optional schema validation.
 
         Args:
-            data: Data to create DataFrame from (pl.DataFrame or dict/list)
-            *args: Additional arguments passed to pl.DataFrame
-            **kwargs: Additional keyword arguments passed to pl.DataFrame
+            data: Data to create DataFrame from
+            *args: Additional arguments passed to pd.DataFrame
+            **kwargs: Additional keyword arguments passed to pd.DataFrame
 
         Raises:
             ValueError: If required column is missing
             TypeError: If column has wrong type
         """
-        pl.DataFrame.__init__(self, data, *args, **kwargs)  # type: ignore[misc]
+        pd.DataFrame.__init__(self, data, *args, **kwargs)  # type: ignore[misc]
         if self._schema is not None:
             validate_dataframe(self, self._schema)

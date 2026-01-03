@@ -619,8 +619,7 @@ wheels = [
 ]
 
 [[package]]
-name = "patrol"
-version = "0.2.0"
+name = "pavise"
 source = { editable = "." }
 dependencies = [
     { name = "typing-extensions" },
@@ -664,7 +663,7 @@ requires-dist = [
     { name = "tox", marker = "extra == 'dev'", specifier = ">=4.0.0" },
     { name = "typing-extensions", specifier = ">=4.0.0" },
 ]
-provides-extras = ["pandas", "polars", "all", "dev"]
+provides-extras = ["all", "dev", "pandas", "polars"]
 
 [[package]]
 name = "platformdirs"

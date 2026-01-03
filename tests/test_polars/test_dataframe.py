@@ -6,8 +6,8 @@ import pytest
 try:
     import polars as pl
 
-    from patrol.exceptions import ValidationError
-    from patrol.polars import DataFrame
+    from pavise.exceptions import ValidationError
+    from pavise.polars import DataFrame
 
     POLARS_AVAILABLE = True
 except ImportError:

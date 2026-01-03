@@ -1,4 +1,4 @@
-# Patrol
+# Pavise
 
 DataFrame validation library using Python Protocol for structural subtyping.
 
@@ -16,13 +16,13 @@ DataFrame validation library using Python Protocol for structural subtyping.
 
 ```bash
 # For pandas support
-pip install patrol[pandas]
+pip install pavise[pandas]
 
 # For polars support
-pip install patrol[polars]
+pip install pavise[polars]
 
 # For both
-pip install patrol[all]
+pip install pavise[all]
 ```
 
 ## Usage
@@ -33,7 +33,7 @@ pip install patrol[all]
 
 ```python
 from typing import Protocol
-from patrol.pandas import DataFrame
+from pavise.pandas import DataFrame
 
 class UserSchema(Protocol):
     name: str
@@ -54,7 +54,7 @@ result = process_users(df)
 ```python
 from typing import Protocol
 import pandas as pd
-from patrol.pandas import DataFrame
+from pavise.pandas import DataFrame
 
 class UserSchema(Protocol):
     name: str
@@ -74,7 +74,7 @@ validated_df = load_users(raw_df)  # Runtime validation occurs here
 
 ```python
 from typing import Protocol
-from patrol.polars import DataFrame
+from pavise.polars import DataFrame
 
 class UserSchema(Protocol):
     name: str
@@ -95,7 +95,7 @@ result = process_users(df)
 ```python
 from typing import Protocol
 import polars as pl
-from patrol.polars import DataFrame
+from pavise.polars import DataFrame
 
 class UserSchema(Protocol):
     name: str
@@ -114,7 +114,7 @@ validated_df = load_users(raw_df)  # Runtime validation occurs here
 ```python
 from typing import Protocol
 import pandas as pd
-from patrol.pandas import DataFrame
+from pavise.pandas import DataFrame
 
 class UserSchema(Protocol):
     name: str
@@ -139,7 +139,7 @@ process_user(df)  # OK - covariant type parameter
 ```python
 from typing import Protocol
 import pandas as pd
-from patrol.pandas import DataFrame
+from pavise.pandas import DataFrame
 
 class SimpleSchema(Protocol):
     a: int

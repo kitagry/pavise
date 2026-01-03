@@ -7,9 +7,9 @@ from typing import Annotated, Callable, Union, get_args, get_origin, get_type_hi
 try:
     import polars as pl
 except ImportError:
-    raise ImportError("Polars is not installed. Install it with: pip install patrol[polars]")
+    raise ImportError("Polars is not installed. Install it with: pip install pavise[polars]")
 
-from patrol.exceptions import ValidationError
+from pavise.exceptions import ValidationError
 
 # Maximum number of invalid sample values to show in error messages
 MAX_SAMPLE_SIZE = 5
@@ -148,7 +148,7 @@ def _check_column_exists(df: pl.DataFrame, col_name: str) -> None:
 
 def _check_column_type(df: pl.DataFrame, col_name: str, expected_type: type) -> None:
     """Check if a column has the expected type and apply validators."""
-    from patrol._polars.validator_impl import apply_validator
+    from pavise._polars.validator_impl import apply_validator
 
     base_type, validators, is_optional = _extract_type_and_validators(expected_type)
 

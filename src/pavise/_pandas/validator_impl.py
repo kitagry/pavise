@@ -1,25 +1,22 @@
-"""Polars-specific validator implementations."""
+"""Pandas-specific validator implementations."""
 
 from typing import Any
 
-try:
-    import polars as pl
-except ImportError:
-    raise ImportError("Polars is not installed. Install it with: pip install patrol[polars]")
+import pandas as pd
 
-from patrol.exceptions import ValidationError
-from patrol.validators import In, MaxLen, MinLen, Range, Regex, Unique
+from pavise.exceptions import ValidationError
+from pavise.validators import In, MaxLen, MinLen, Range, Regex, Unique
 
 # Maximum number of invalid sample values to show in error messages
 MAX_SAMPLE_SIZE = 5
 
 
-def apply_validator(series: "pl.Series", validator: Any, col_name: str) -> None:
+def apply_validator(series: pd.Series, validator: Any, col_name: str) -> None:
     """
-    Apply a validator to a polars Series.
+    Apply a validator to a pandas Series.
 
     Args:
-        series: polars Series to validate
+        series: pandas Series to validate
         validator: Validator instance (e.g., Range, Unique, In, Regex, MinLen, MaxLen)
         col_name: column name for error messages
 
@@ -42,27 +39,24 @@ def apply_validator(series: "pl.Series", validator: Any, col_name: str) -> None:
         raise ValidationError(f"Unknown validator type: {type(validator)}")
 
 
-def _get_invalid_samples(series: "pl.Series", invalid_mask: "pl.Series") -> tuple[list[tuple], int]:
+def _get_invalid_samples(series: pd.Series, invalid_mask: pd.Series) -> tuple[list[tuple], int]:
     """
     Extract invalid samples and total count from an invalid mask.
 
     Args:
-        series: polars Series being validated
+        series: pandas Series being validated
         invalid_mask: Boolean mask indicating invalid values
 
     Returns:
         Tuple of (samples, total_invalid) where samples is a list of (index, value) tuples
     """
-    invalid_df = series.to_frame().with_row_index("__row__").filter(invalid_mask)
-    samples = [
-        (row["__row__"], row[series.name])
-        for row in invalid_df.head(MAX_SAMPLE_SIZE).iter_rows(named=True)
-    ]
-    total_invalid = int(invalid_mask.sum())
+    invalid_indices = series.index[invalid_mask][:MAX_SAMPLE_SIZE]
+    samples = [(idx, series.loc[idx]) for idx in invalid_indices]
+    total_invalid = invalid_mask.sum()
     return samples, total_invalid
 
 
-def _validate_range(series: "pl.Series", validator: Range, col_name: str) -> None:
+def _validate_range(series: pd.Series, validator: Range, col_name: str) -> None:
     """Validate that all values in series are within the specified range."""
     invalid_mask = (series < validator.min) | (series > validator.max)
     if not invalid_mask.any():
@@ -78,9 +72,9 @@ def _validate_range(series: "pl.Series", validator: Range, col_name: str) -> Non
     )
 
 
-def _validate_unique(series: "pl.Series", col_name: str) -> None:
+def _validate_unique(series: pd.Series, col_name: str) -> None:
     """Validate that all values in series are unique (no duplicates)."""
-    duplicated_mask = series.is_duplicated()
+    duplicated_mask = series.duplicated(keep=False)
     if not duplicated_mask.any():
         return
 
@@ -89,14 +83,14 @@ def _validate_unique(series: "pl.Series", col_name: str) -> None:
         col_name,
         "contains duplicate values",
         samples,
-        total_invalid=total_invalid,
+        total_invalid,
         format_value=repr,
     )
 
 
-def _validate_in(series: "pl.Series", validator: In, col_name: str) -> None:
+def _validate_in(series: pd.Series, validator: In, col_name: str) -> None:
     """Validate that all values in series are within the allowed set."""
-    invalid_mask = ~series.is_in(validator.allowed_values)
+    invalid_mask = ~series.isin(validator.allowed_values)
     if not invalid_mask.any():
         return
 
@@ -106,9 +100,9 @@ def _validate_in(series: "pl.Series", validator: In, col_name: str) -> None:
     )
 
 
-def _validate_regex(series: "pl.Series", validator: Regex, col_name: str) -> None:
+def _validate_regex(series: pd.Series, validator: Regex, col_name: str) -> None:
     """Validate that all values in series match the regex pattern."""
-    invalid_mask = ~series.str.contains(f"^{validator.pattern}$")
+    invalid_mask = ~series.str.match(validator.pattern)
     if not invalid_mask.any():
         return
 
@@ -118,9 +112,9 @@ def _validate_regex(series: "pl.Series", validator: Regex, col_name: str) -> Non
     )
 
 
-def _validate_minlen(series: "pl.Series", validator: MinLen, col_name: str) -> None:
+def _validate_minlen(series: pd.Series, validator: MinLen, col_name: str) -> None:
     """Validate that all string values have minimum length."""
-    invalid_mask = series.str.len_chars() < validator.min_length
+    invalid_mask = series.str.len() < validator.min_length
     if not invalid_mask.any():
         return
 
@@ -134,9 +128,9 @@ def _validate_minlen(series: "pl.Series", validator: MinLen, col_name: str) -> N
     )
 
 
-def _validate_maxlen(series: "pl.Series", validator: MaxLen, col_name: str) -> None:
+def _validate_maxlen(series: pd.Series, validator: MaxLen, col_name: str) -> None:
     """Validate that all string values have maximum length."""
-    invalid_mask = series.str.len_chars() > validator.max_length
+    invalid_mask = series.str.len() > validator.max_length
     if not invalid_mask.any():
         return
 

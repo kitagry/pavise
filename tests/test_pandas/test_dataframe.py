@@ -4,9 +4,9 @@ from typing import Annotated, Optional, Protocol
 import pandas as pd
 import pytest
 
-from patrol.exceptions import ValidationError
-from patrol.pandas import DataFrame
-from patrol.validators import Range, Unique
+from pavise.exceptions import ValidationError
+from pavise.pandas import DataFrame
+from pavise.validators import Range, Unique
 
 
 class SimpleSchema(Protocol):

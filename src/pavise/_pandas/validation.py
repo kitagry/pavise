@@ -9,7 +9,7 @@ from typing import Annotated, Callable, Union, get_args, get_origin, get_type_hi
 import numpy as np
 import pandas as pd
 
-from patrol.exceptions import ValidationError
+from pavise.exceptions import ValidationError
 
 # Maximum number of invalid sample values to show in error messages
 MAX_SAMPLE_SIZE = 5
@@ -168,7 +168,7 @@ def _extract_index_name_type_and_validators(
 
 def _check_index_type(df: pd.DataFrame, expected_type: type) -> None:
     """Check if index has the expected type and name."""
-    from patrol._pandas.validator_impl import apply_validator
+    from pavise._pandas.validator_impl import apply_validator
 
     base_type, index_name, validators, is_optional = _extract_index_name_type_and_validators(
         expected_type
@@ -203,7 +203,7 @@ def _check_multiindex_type(
     is_optional: bool,
 ) -> None:
     """Check if MultiIndex has the expected types and names."""
-    from patrol._pandas.validator_impl import apply_validator
+    from pavise._pandas.validator_impl import apply_validator
 
     level_types = get_args(expected_types)
 
@@ -250,7 +250,7 @@ def _check_column_exists(df: pd.DataFrame, col_name: str) -> None:
 
 def _check_column_type(df: pd.DataFrame, col_name: str, expected_type: type) -> None:
     """Check if a column has the expected type and apply validators."""
-    from patrol._pandas.validator_impl import apply_validator
+    from pavise._pandas.validator_impl import apply_validator
 
     base_type, validators, is_optional = _extract_type_and_validators(expected_type)
 

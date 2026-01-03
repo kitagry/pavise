@@ -3,7 +3,7 @@ requires = ["hatchling", "uv-dynamic-versioning"]
 build-backend = "hatchling.build"
 
 [project]
-name = "patrol"
+name = "pavise"
 description = "DataFrame validation library using Python Protocol for structural subtyping"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -23,9 +23,9 @@ source = "uv-dynamic-versioning"
 enable = true
 
 [tool.hatch.build.hooks.version]
-path = "src/patrol/__init__.py"
+path = "src/pavise/__init__.py"
 template = '''
-"""Patrol: DataFrame validation library using Python Protocol for structural subtyping."""
+"""Pavise: DataFrame validation library using Python Protocol for structural subtyping."""
 
 __version__ = "{version}"
 __all__ = []
@@ -53,7 +53,7 @@ dev = [
 ]
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/patrol"]
+packages = ["src/pavise"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
