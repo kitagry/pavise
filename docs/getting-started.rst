@@ -65,18 +65,22 @@ Validate DataFrames at runtime, typically at system boundaries:
 
    import pandas as pd
    from pavise.pandas import DataFrame
+   from pavise.exceptions import ValidationError
 
    # Load data from external source
    raw_df = pd.read_csv("users.csv")
 
    # Validate at system boundary
-   validated_df = DataFrame[UserSchema](raw_df)
+   try:
+       validated_df = DataFrame[UserSchema](raw_df)
+   except ValidationError as e:
+       print(f"Validation failed: {e}")
 
-If validation fails, you'll get a detailed error message:
+If validation fails, you'll get a detailed error message from ``ValidationError``:
 
 .. code-block:: text
 
-   TypeError: Column 'age' expected int, got object
+   Validation failed: Column 'age': expected int, got object
 
    Sample invalid values (showing first 3 of 10):
      Row 1: 'invalid' (str)

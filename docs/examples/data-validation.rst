@@ -12,6 +12,7 @@ Validate data loaded from CSV files:
 
    from typing import Protocol, Annotated
    from pavise.pandas import DataFrame
+   from pavise.exceptions import ValidationError
    from pavise.validators import Range, Regex
    import pandas as pd
 
@@ -28,7 +29,7 @@ Validate data loaded from CSV files:
    try:
        validated_df = DataFrame[UserDataSchema](raw_df)
        print("Data is valid!")
-   except (TypeError, ValueError) as e:
+   except ValidationError as e:
        print(f"Validation failed: {e}")
 
 Database Query Validation
@@ -68,7 +69,8 @@ Validate data from external APIs:
 
    from typing import Protocol, Annotated
    from pavise.polars import DataFrame
-   from pavise.validators import Unique
+   from pavise.exceptions import ValidationError
+   from pavise.validators import Unique, Range
    import polars as pl
    import requests
 
@@ -88,7 +90,7 @@ Validate data from external APIs:
    # Validate with strict mode (no extra fields allowed)
    try:
        validated_df = DataFrame[APIProductSchema](df, strict=True)
-   except ValueError as e:
+   except ValidationError as e:
        print(f"API contract violation: {e}")
 
 ETL Pipeline Validation
@@ -141,6 +143,7 @@ Gracefully handle validation errors in production:
 
    from typing import Protocol
    from pavise.pandas import DataFrame
+   from pavise.exceptions import ValidationError
    import pandas as pd
    import logging
 
@@ -159,13 +162,9 @@ Gracefully handle validation errors in production:
            # Process valid data
            process_valid_transactions(validated_df)
 
-       except ValueError as e:
-           logger.error(f"Missing columns in {file_path}: {e}")
-           # Handle missing column error
-
-       except TypeError as e:
-           logger.error(f"Type mismatch in {file_path}: {e}")
-           # Handle type error - maybe clean and retry
+       except ValidationError as e:
+           logger.error(f"Validation failed in {file_path}: {e}")
+           # Handle validation error - maybe clean and retry
 
        except Exception as e:
            logger.error(f"Unexpected error in {file_path}: {e}")

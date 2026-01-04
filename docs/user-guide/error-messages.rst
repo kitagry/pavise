@@ -20,19 +20,23 @@ Example
 
    from typing import Protocol
    from pavise.pandas import DataFrame
+   from pavise.exceptions import ValidationError
    import pandas as pd
 
    class Schema(Protocol):
        age: int
 
    df = pd.DataFrame({"age": [25, "invalid", 30, None, 35, "bad", 40]})
-   validated_df = DataFrame[Schema](df)
+   try:
+       validated_df = DataFrame[Schema](df)
+   except ValidationError as e:
+       print(e)
 
 Output:
 
 .. code-block:: text
 
-   TypeError: Column 'age' expected int, got object
+   Column 'age': expected int, got object
 
    Sample invalid values (showing first 3 of 4):
      Row 1: 'invalid' (str)
@@ -51,13 +55,16 @@ When a required column is missing:
        name: str
 
    df = pd.DataFrame({"user_id": [1, 2, 3]})  # Missing 'name'
-   validated_df = DataFrame[Schema](df)
+   try:
+       validated_df = DataFrame[Schema](df)
+   except ValidationError as e:
+       print(e)
 
 Output:
 
 .. code-block:: text
 
-   ValueError: Missing required column: name
+   Column 'name': missing
 
 Validator Errors
 ----------------
@@ -76,13 +83,16 @@ Range Validator
        age: Annotated[int, Range(0, 150)]
 
    df = pd.DataFrame({"age": [25, 200, 30, -5, 35, 300]})
-   validated_df = DataFrame[Schema](df)
+   try:
+       validated_df = DataFrame[Schema](df)
+   except ValidationError as e:
+       print(e)
 
 Output:
 
 .. code-block:: text
 
-   ValueError: Column 'age': values must be in range [0, 150]
+   Column 'age': values must be in range [0, 150]
 
    Sample invalid values (showing first 3 of 4):
      Row 1: 200
@@ -100,13 +110,16 @@ Unique Validator
        user_id: Annotated[int, Unique()]
 
    df = pd.DataFrame({"user_id": [1, 2, 2, 3, 5, 5, 5]})
-   validated_df = DataFrame[Schema](df)
+   try:
+       validated_df = DataFrame[Schema](df)
+   except ValidationError as e:
+       print(e)
 
 Output:
 
 .. code-block:: text
 
-   ValueError: Column 'user_id': contains duplicate values
+   Column 'user_id': contains duplicate values
 
    Sample duplicate values (showing first 2):
      Value 2 at rows: [1, 2]
@@ -123,13 +136,16 @@ In Validator
        status: Annotated[str, In(["pending", "approved", "rejected"])]
 
    df = pd.DataFrame({"status": ["pending", "invalid", "approved", "bad"]})
-   validated_df = DataFrame[Schema](df)
+   try:
+       validated_df = DataFrame[Schema](df)
+   except ValidationError as e:
+       print(e)
 
 Output:
 
 .. code-block:: text
 
-   ValueError: Column 'status': contains values not in allowed values
+   Column 'status': contains values not in allowed values
 
    Sample invalid values (showing first 2 of 2):
      Row 1: 'invalid'
@@ -146,13 +162,16 @@ Regex Validator
        email: Annotated[str, Regex(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$')]
 
    df = pd.DataFrame({"email": ["alice@example.com", "invalid", "bob@test.com", "bad@"]})
-   validated_df = DataFrame[Schema](df)
+   try:
+       validated_df = DataFrame[Schema](df)
+   except ValidationError as e:
+       print(e)
 
 Output:
 
 .. code-block:: text
 
-   ValueError: Column 'email': contains values that don't match the pattern
+   Column 'email': contains values that don't match the pattern
 
    Sample invalid values (showing first 2 of 2):
      Row 1: 'invalid'
@@ -169,13 +188,16 @@ MinLen/MaxLen Validators
        username: Annotated[str, MinLen(3)]
 
    df = pd.DataFrame({"username": ["alice", "ab", "bob", "x"]})
-   validated_df = DataFrame[Schema](df)
+   try:
+       validated_df = DataFrame[Schema](df)
+   except ValidationError as e:
+       print(e)
 
 Output:
 
 .. code-block:: text
 
-   ValueError: Column 'username': contains strings shorter than minimum length
+   Column 'username': contains strings shorter than minimum length
 
    Sample invalid values (showing first 2 of 2):
      Row 1: 'ab' (length: 2)
@@ -199,13 +221,16 @@ When strict mode is enabled and extra columns are present:
        "email": ["a@test.com", "b@test.com", "c@test.com"]  # Extra column
    })
 
-   validated_df = DataFrame[Schema](df, strict=True)
+   try:
+       validated_df = DataFrame[Schema](df, strict=True)
+   except ValidationError as e:
+       print(e)
 
 Output:
 
 .. code-block:: text
 
-   ValueError: Strict mode: unexpected columns ['age', 'email']
+   Strict mode: unexpected columns ['age', 'email']
 
 Performance Notes
 -----------------
