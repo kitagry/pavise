@@ -7,6 +7,7 @@ The actual validation logic is implemented in backend-specific modules:
 """
 
 from dataclasses import dataclass
+from typing import Any, Callable
 
 
 @dataclass
@@ -72,3 +73,20 @@ class MaxLen:
     """
 
     max_length: int
+
+
+@dataclass
+class Custom:
+    """Validate using a custom validation function.
+
+    The function should accept a single value and return True if valid, False otherwise.
+
+    Example:
+        def is_positive(value) -> bool:
+            return value > 0
+
+        age: Annotated[int, Custom(is_positive, "must be positive")]
+    """
+
+    func: Callable[[Any], bool]
+    message: str

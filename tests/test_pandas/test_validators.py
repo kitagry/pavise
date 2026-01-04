@@ -5,7 +5,7 @@ import pytest
 
 from pavise.exceptions import ValidationError
 from pavise.pandas import DataFrame
-from pavise.validators import In, MaxLen, MinLen, Range, Regex, Unique
+from pavise.validators import Custom, In, MaxLen, MinLen, Range, Regex, Unique
 
 
 class AgeSchema(Protocol):
@@ -121,3 +121,26 @@ def test_maxlen_validator_rejects_long_strings():
     df = pd.DataFrame({"username": ["alice", "thisusernameiswaytoolongtobevalid", "bob"]})
     with pytest.raises(ValidationError, match="username.*length"):
         DataFrame[UsernameMaxLenSchema](df)
+
+
+def is_positive(value) -> bool:
+    """Custom validator function for testing."""
+    return value > 0
+
+
+class CustomValidatorSchema(Protocol):
+    value: Annotated[int, Custom(is_positive, "must be positive")]
+
+
+def test_custom_validator_accepts_valid_values():
+    """Custom validator accepts values that pass the validation function"""
+    df = pd.DataFrame({"value": [1, 2, 3, 100]})
+    result = DataFrame[CustomValidatorSchema](df)
+    assert isinstance(result, pd.DataFrame)
+
+
+def test_custom_validator_rejects_invalid_values():
+    """Custom validator rejects values that fail the validation function"""
+    df = pd.DataFrame({"value": [1, -5, 3]})
+    with pytest.raises(ValidationError, match="value.*must be positive"):
+        DataFrame[CustomValidatorSchema](df)

@@ -8,7 +8,7 @@ except ImportError:
     raise ImportError("Polars is not installed. Install it with: pip install pavise[polars]")
 
 from pavise.exceptions import ValidationError
-from pavise.validators import In, MaxLen, MinLen, Range, Regex, Unique
+from pavise.validators import Custom, In, MaxLen, MinLen, Range, Regex, Unique
 
 # Maximum number of invalid sample values to show in error messages
 MAX_SAMPLE_SIZE = 5
@@ -38,6 +38,8 @@ def apply_validator(series: "pl.Series", validator: Any, col_name: str) -> None:
         _validate_minlen(series, validator, col_name)
     elif isinstance(validator, MaxLen):
         _validate_maxlen(series, validator, col_name)
+    elif isinstance(validator, Custom):
+        _validate_custom(series, validator, col_name)
     else:
         raise ValidationError(f"Unknown validator type: {type(validator)}")
 
@@ -148,3 +150,13 @@ def _validate_maxlen(series: "pl.Series", validator: MaxLen, col_name: str) -> N
         total_invalid,
         format_value=lambda val: f"{repr(val)} (length: {len(val)})",
     )
+
+
+def _validate_custom(series: "pl.Series", validator: Custom, col_name: str) -> None:
+    """Validate using a custom function."""
+    invalid_mask = ~series.map_elements(validator.func)
+    if not invalid_mask.any():
+        return
+
+    samples, total_invalid = _get_invalid_samples(series, invalid_mask)
+    raise ValidationError.new_with_samples(col_name, validator.message, samples, total_invalid)
