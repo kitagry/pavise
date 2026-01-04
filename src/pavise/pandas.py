@@ -13,7 +13,8 @@ class DataFrame(pd.DataFrame, Generic[SchemaT_co]):
     """
     Type-parameterized DataFrame with runtime validation for pandas.
 
-    Usage:
+    Usage::
+
         # Static type checking only
         def process(df: DataFrame[UserSchema]) -> DataFrame[UserSchema]:
             return df
@@ -21,9 +22,9 @@ class DataFrame(pd.DataFrame, Generic[SchemaT_co]):
         # Runtime validation
         validated = DataFrame[UserSchema](raw_df)
 
-    The type parameter is covariant, allowing structural subtyping:
-        DataFrame[ChildSchema] is compatible with DataFrame[ParentSchema]
-        when ChildSchema has all columns of ParentSchema.
+    The type parameter is covariant, allowing structural subtyping.
+    DataFrame[ChildSchema] is compatible with DataFrame[ParentSchema]
+    when ChildSchema has all columns of ParentSchema.
     """
 
     _schema: Optional[type] = None

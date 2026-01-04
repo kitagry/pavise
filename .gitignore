@@ -1,3 +1,21 @@
 .venv/
 __pycache__/
 .tox/
+
+# Sphinx documentation
+docs/_build/
+
+# Distribution / packaging
+dist/
+build/
+*.egg-info/
+
+# pytest
+.pytest_cache/
+
+# Coverage
+.coverage
+htmlcov/
+
+# Ruff
+.ruff_cache/
