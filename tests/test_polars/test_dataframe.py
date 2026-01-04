@@ -1,5 +1,5 @@
 from datetime import date, datetime, timedelta
-from typing import Optional, Protocol
+from typing import Literal, Optional, Protocol
 
 import pytest
 
@@ -38,6 +38,11 @@ class OptionalSchema(Protocol):
     user_id: int
     email: Optional[str]
     age: Optional[int]
+
+
+class LiteralSchema(Protocol):
+    status: Literal["pending", "approved", "rejected"]
+    priority: Literal[1, 2, 3]
 
 
 def test_dataframe_class_getitem_returns_class():
@@ -240,3 +245,32 @@ def test_dataframe_strict_mode_passes_with_exact_columns():
     result = DataFrame[SimpleSchema](df, strict=True)
     assert isinstance(result, pl.DataFrame)
     assert result.equals(df)
+
+
+def test_dataframe_with_literal_type_validates_correct_values():
+    """DataFrame[Schema] with Literal type validates correct values"""
+    df = pl.DataFrame(
+        {"status": ["pending", "approved", "rejected", "pending"], "priority": [1, 2, 3, 1]}
+    )
+    result = DataFrame[LiteralSchema](df)
+    assert isinstance(result, pl.DataFrame)
+    assert result.equals(df)
+
+
+def test_dataframe_with_literal_type_raises_error_for_invalid_values():
+    """DataFrame[Schema] with Literal type raises ValidationError for invalid values"""
+    df = pl.DataFrame({"status": ["pending", "invalid", "approved"], "priority": [1, 2, 3]})
+    with pytest.raises(ValidationError, match="status"):
+        DataFrame[LiteralSchema](df)
+
+
+def test_dataframe_with_literal_type_raises_error_for_wrong_type():
+    """DataFrame[Schema] with Literal type raises ValidationError for wrong type values"""
+    df = pl.DataFrame(
+        {
+            "status": ["pending", "approved", "rejected"],
+            "priority": [1, 99, 3],  # 99 is not in Literal[1, 2, 3]
+        }
+    )
+    with pytest.raises(ValidationError, match="priority"):
+        DataFrame[LiteralSchema](df)

@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
-from typing import Annotated, Callable, Union, get_args, get_origin, get_type_hints
+from typing import Annotated, Callable, Literal, Union, get_args, get_origin, get_type_hints
 
 try:
     import polars as pl
@@ -166,6 +166,27 @@ def _check_column_type(df: pl.DataFrame, col_name: str, expected_type: type) -> 
             raise ValidationError(
                 f"expected {base_type.__name__}, got {col_dtype}",
                 column_name=col_name,
+            )
+        for validator in validators:
+            apply_validator(df[col_name], validator, col_name)
+        return
+
+    if get_origin(base_type) is Literal:
+        allowed_values = get_args(base_type)
+        invalid_mask = ~df[col_name].is_in(allowed_values)
+        if invalid_mask.any():
+            invalid_df = df[col_name].to_frame().with_row_index("__row__").filter(invalid_mask)
+            samples = [
+                (row["__row__"], row[col_name])
+                for row in invalid_df.head(MAX_SAMPLE_SIZE).iter_rows(named=True)
+            ]
+            total_invalid = int(invalid_mask.sum())
+            raise ValidationError.new_with_samples(
+                col_name,
+                f"expected one of {allowed_values}, got invalid values",
+                samples,
+                total_invalid,
+                repr,
             )
         for validator in validators:
             apply_validator(df[col_name], validator, col_name)

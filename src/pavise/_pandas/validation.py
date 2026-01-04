@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
-from typing import Annotated, Callable, Union, get_args, get_origin, get_type_hints
+from typing import Annotated, Callable, Literal, Union, get_args, get_origin, get_type_hints
 
 import numpy as np
 import pandas as pd
@@ -275,6 +275,24 @@ def _check_column_type(df: pd.DataFrame, col_name: str, expected_type: type) -> 
             raise ValidationError(
                 f"expected {base_tname}, got {col_tname}",
                 column_name=col_name,
+            )
+        for validator in validators:
+            apply_validator(df[col_name], validator, col_name)
+        return
+
+    if get_origin(base_type) is Literal:
+        allowed_values = get_args(base_type)
+        invalid_mask = ~df[col_name].isin(allowed_values)
+        if invalid_mask.any():
+            invalid_df = df[col_name][invalid_mask]
+            samples = [(idx, invalid_df[idx]) for idx in invalid_df.index]
+            samples = samples[:MAX_SAMPLE_SIZE]
+            raise ValidationError.new_with_samples(
+                col_name,
+                f"expected one of {allowed_values}, got invalid values",
+                samples,
+                len(invalid_df),
+                repr,
             )
         for validator in validators:
             apply_validator(df[col_name], validator, col_name)
