@@ -108,6 +108,38 @@ df = DataFrame[UserWithEmailSchema](pd.DataFrame({
 process_user(df)  # OK - covariant type parameter
 ```
 
+### Using Validators
+
+Add validators using `typing.Annotated` to enforce data quality constraints:
+
+```python
+from typing import Annotated, Protocol
+import pandas as pd
+from pavise.pandas import DataFrame
+from pavise.validators import Range, Regex
+
+class UserSchema(Protocol):
+    name: str
+    age: Annotated[int, Range(0, 150)]
+    email: Annotated[str, Regex(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$')]
+
+# Valid data passes validation
+df = pd.DataFrame({
+    'name': ['Alice', 'Bob'],
+    'age': [25, 30],
+    'email': ['alice@example.com', 'bob@example.com']
+})
+validated_df = DataFrame[UserSchema](df)  # OK
+
+# Invalid data raises ValidationError
+invalid_df = pd.DataFrame({
+    'name': ['Charlie'],
+    'age': [200],  # Exceeds maximum age
+    'email': ['invalid-email']  # Invalid email format
+})
+DataFrame[UserSchema](invalid_df)  # ValidationError
+```
+
 ### Extra Columns are Ignored
 
 ```python
