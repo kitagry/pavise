@@ -228,3 +228,62 @@ polars-specific data types can be used directly:
    class Schema(Protocol):
        category: pl.Categorical
        value: pl.Int64
+
+Creating Empty DataFrames
+--------------------------
+
+You can create an empty DataFrame that conforms to your schema using the ``make_empty()`` class method.
+This is useful for initializing DataFrames, creating templates, or testing.
+
+pandas Backend
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   from typing import Protocol
+   from pavise.pandas import DataFrame
+
+   class UserSchema(Protocol):
+       user_id: int
+       name: str
+       age: int
+
+   # Create an empty DataFrame with the correct schema
+   empty_df = DataFrame[UserSchema].make_empty()
+
+   # Result: Empty DataFrame with columns [user_id, name, age]
+   # - len(empty_df) == 0
+   # - Columns have correct dtypes (int64, object, int64)
+
+polars Backend
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   from typing import Protocol
+   from pavise.polars import DataFrame
+
+   class UserSchema(Protocol):
+       user_id: int
+       name: str
+       age: int
+
+   # Create an empty DataFrame with the correct schema
+   empty_df = DataFrame[UserSchema].make_empty()
+
+   # Result: Empty DataFrame with columns [user_id, name, age]
+   # - len(empty_df) == 0
+   # - Columns have correct dtypes (Int64, Utf8, Int64)
+
+Supported Features
+~~~~~~~~~~~~~~~~~~
+
+The ``make_empty()`` method supports all schema features:
+
+* Basic types (int, float, str, bool)
+* Datetime types (datetime, date, timedelta)
+* Optional types (``Optional[T]``)
+* NotRequired columns (``NotRequiredColumn[T]`` - included as empty columns)
+* Literal types (uses base type)
+* Annotated types with validators (uses base type, validators not applied)
+* Backend-specific types (pandas ExtensionDtype, polars DataType)

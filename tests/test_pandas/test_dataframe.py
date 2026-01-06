@@ -480,3 +480,95 @@ def test_dataframe_with_notrequired_optional_combination():
     result = DataFrame[NotRequiredSchema](df)
     assert isinstance(result, pd.DataFrame)
     pd.testing.assert_frame_equal(result, df)
+
+
+def test_empty_creates_empty_dataframe_with_basic_types():
+    """DataFrame.make_empty() creates an empty DataFrame with basic types"""
+    result = DataFrame[MultiTypeSchema].make_empty()
+
+    expected = pd.DataFrame(
+        {
+            "int_col": pd.Series([], dtype="int64"),
+            "float_col": pd.Series([], dtype="float64"),
+            "str_col": pd.Series([], dtype="object"),
+            "bool_col": pd.Series([], dtype="bool"),
+        }
+    )
+    pd.testing.assert_frame_equal(result, expected)
+
+
+def test_empty_creates_empty_dataframe_with_optional_types():
+    """DataFrame.make_empty() creates an empty DataFrame with Optional types"""
+    result = DataFrame[OptionalSchema].make_empty()
+
+    expected = pd.DataFrame(
+        {
+            "user_id": pd.Series([], dtype="int64"),
+            "email": pd.Series([], dtype="object"),
+            "age": pd.Series(
+                [], dtype="int64"
+            ),  # Empty DataFrame can use int64 even for Optional[int]
+        }
+    )
+    pd.testing.assert_frame_equal(result, expected)
+
+
+def test_empty_creates_empty_dataframe_with_notrequired_types():
+    """DataFrame.make_empty() creates an empty DataFrame including NotRequired columns"""
+    result = DataFrame[NotRequiredSchema].make_empty()
+
+    # NotRequired columns should be included in the empty DataFrame
+    expected = pd.DataFrame(
+        {
+            "user_id": pd.Series([], dtype="int64"),
+            "name": pd.Series([], dtype="object"),
+            "age": pd.Series([], dtype="int64"),
+            "email": pd.Series([], dtype="object"),
+        }
+    )
+    pd.testing.assert_frame_equal(result, expected)
+
+
+def test_empty_creates_empty_dataframe_with_literal_types():
+    """DataFrame.make_empty() creates an empty DataFrame with Literal types (using base type)"""
+    result = DataFrame[LiteralSchema].make_empty()
+
+    expected = pd.DataFrame(
+        {
+            "status": pd.Series([], dtype="object"),  # Literal["a", "b"] -> str -> object
+            "priority": pd.Series([], dtype="int64"),  # Literal[1, 2, 3] -> int -> int64
+        }
+    )
+    pd.testing.assert_frame_equal(result, expected)
+
+
+def test_empty_creates_empty_dataframe_with_annotated_types():
+    """DataFrame.make_empty() creates an empty DataFrame with Annotated types (using base type)"""
+
+    class AnnotatedSchema(Protocol):
+        age: Annotated[int, Range(0, 150)]
+        score: Annotated[float, Unique()]
+
+    result = DataFrame[AnnotatedSchema].make_empty()
+
+    expected = pd.DataFrame(
+        {
+            "age": pd.Series([], dtype="int64"),
+            "score": pd.Series([], dtype="float64"),
+        }
+    )
+    pd.testing.assert_frame_equal(result, expected)
+
+
+def test_empty_creates_empty_dataframe_with_datetime_types():
+    """DataFrame.make_empty() creates an empty DataFrame with datetime types"""
+    result = DataFrame[DatetimeSchema].make_empty()
+
+    expected = pd.DataFrame(
+        {
+            "created_at": pd.Series([], dtype="datetime64[ns]"),
+            "event_date": pd.Series([], dtype="datetime64[ns]"),
+            "duration": pd.Series([], dtype="timedelta64[ns]"),
+        }
+    )
+    pd.testing.assert_frame_equal(result, expected)

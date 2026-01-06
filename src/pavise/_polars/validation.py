@@ -78,6 +78,17 @@ TYPE_CHECKERS = {
     ),
 }
 
+# Mapping from Python type to polars dtype for creating empty DataFrames
+TYPE_TO_DTYPE = {
+    int: pl.Int64(),
+    float: pl.Float64(),
+    str: pl.Utf8(),
+    bool: pl.Boolean(),
+    datetime: pl.Datetime(),
+    date: pl.Date(),
+    timedelta: pl.Duration(),
+}
+
 
 def validate_dataframe(df: pl.DataFrame, schema: type, strict: bool = False) -> None:
     """

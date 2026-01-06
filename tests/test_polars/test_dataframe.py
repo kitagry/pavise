@@ -1,5 +1,5 @@
 from datetime import date, datetime, timedelta
-from typing import Literal, Optional, Protocol
+from typing import Annotated, Literal, Optional, Protocol
 
 import pytest
 
@@ -9,6 +9,7 @@ try:
     from pavise.exceptions import ValidationError
     from pavise.polars import DataFrame
     from pavise.types import NotRequiredColumn
+    from pavise.validators import Range, Unique
 
     POLARS_AVAILABLE = True
 except ImportError:
@@ -331,3 +332,95 @@ def test_dataframe_with_notrequired_optional_combination():
     result = DataFrame[NotRequiredSchema](df)
     assert isinstance(result, pl.DataFrame)
     assert result.equals(df)
+
+
+def test_empty_creates_empty_dataframe_with_basic_types():
+    """DataFrame.make_empty() creates an empty DataFrame with basic types"""
+    result = DataFrame[MultiTypeSchema].make_empty()
+
+    expected = pl.DataFrame(
+        {
+            "int_col": pl.Series([], dtype=pl.Int64),
+            "float_col": pl.Series([], dtype=pl.Float64),
+            "str_col": pl.Series([], dtype=pl.Utf8),
+            "bool_col": pl.Series([], dtype=pl.Boolean),
+        }
+    )
+    assert result.equals(expected)
+
+
+def test_empty_creates_empty_dataframe_with_optional_types():
+    """DataFrame.make_empty() creates an empty DataFrame with Optional types"""
+    result = DataFrame[OptionalSchema].make_empty()
+
+    expected = pl.DataFrame(
+        {
+            "user_id": pl.Series([], dtype=pl.Int64),
+            "email": pl.Series([], dtype=pl.Utf8),
+            "age": pl.Series(
+                [], dtype=pl.Int64
+            ),  # Empty DataFrame can use Int64 even for Optional[int]
+        }
+    )
+    assert result.equals(expected)
+
+
+def test_empty_creates_empty_dataframe_with_notrequired_types():
+    """DataFrame.make_empty() creates an empty DataFrame including NotRequired columns"""
+    result = DataFrame[NotRequiredSchema].make_empty()
+
+    # NotRequired columns should be included in the empty DataFrame
+    expected = pl.DataFrame(
+        {
+            "user_id": pl.Series([], dtype=pl.Int64),
+            "name": pl.Series([], dtype=pl.Utf8),
+            "age": pl.Series([], dtype=pl.Int64),
+            "email": pl.Series([], dtype=pl.Utf8),
+        }
+    )
+    assert result.equals(expected)
+
+
+def test_empty_creates_empty_dataframe_with_literal_types():
+    """DataFrame.make_empty() creates an empty DataFrame with Literal types (using base type)"""
+    result = DataFrame[LiteralSchema].make_empty()
+
+    expected = pl.DataFrame(
+        {
+            "status": pl.Series([], dtype=pl.Utf8),  # Literal["a", "b"] -> str -> Utf8
+            "priority": pl.Series([], dtype=pl.Int64),  # Literal[1, 2, 3] -> int -> Int64
+        }
+    )
+    assert result.equals(expected)
+
+
+def test_empty_creates_empty_dataframe_with_annotated_types():
+    """DataFrame.make_empty() creates an empty DataFrame with Annotated types (using base type)"""
+
+    class AnnotatedSchema(Protocol):
+        age: Annotated[int, Range(0, 150)]
+        score: Annotated[float, Unique()]
+
+    result = DataFrame[AnnotatedSchema].make_empty()
+
+    expected = pl.DataFrame(
+        {
+            "age": pl.Series([], dtype=pl.Int64),
+            "score": pl.Series([], dtype=pl.Float64),
+        }
+    )
+    assert result.equals(expected)
+
+
+def test_empty_creates_empty_dataframe_with_datetime_types():
+    """DataFrame.make_empty() creates an empty DataFrame with datetime types"""
+    result = DataFrame[DatetimeSchema].make_empty()
+
+    expected = pl.DataFrame(
+        {
+            "created_at": pl.Series([], dtype=pl.Datetime),
+            "event_date": pl.Series([], dtype=pl.Date),
+            "duration": pl.Series([], dtype=pl.Duration),
+        }
+    )
+    assert result.equals(expected)

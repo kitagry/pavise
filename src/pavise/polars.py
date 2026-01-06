@@ -1,6 +1,6 @@
 """Polars backend for type-parameterized DataFrame with Protocol-based schema validation."""
 
-from typing import Generic, Optional, TypeVar
+from typing import Generic, Literal, Optional, TypeVar, get_args, get_origin, get_type_hints
 
 try:
     import polars as pl
@@ -13,6 +13,24 @@ from pavise.types import NotRequiredColumn
 __all__ = ["DataFrame", "NotRequiredColumn"]
 
 SchemaT_co = TypeVar("SchemaT_co", covariant=True)
+
+
+def _get_dtype_for_type(base_type: type) -> pl.DataType:
+    """
+    Get polars dtype for a given Python type.
+
+    Args:
+        base_type: Python type (int, str, float, bool, datetime, date, timedelta)
+
+    Returns:
+        Polars DataType
+    """
+    from pavise._polars.validation import TYPE_TO_DTYPE
+
+    if isinstance(base_type, type) and issubclass(base_type, pl.DataType):
+        return base_type()
+
+    return TYPE_TO_DTYPE.get(base_type, pl.Utf8())
 
 
 class DataFrame(pl.DataFrame, Generic[SchemaT_co]):
@@ -60,3 +78,35 @@ class DataFrame(pl.DataFrame, Generic[SchemaT_co]):
         pl.DataFrame.__init__(self, data, *args, **kwargs)  # type: ignore[misc]
         if self._schema is not None:
             validate_dataframe(self, self._schema, strict=strict)
+
+    @classmethod
+    def make_empty(cls):
+        """
+        Create an empty DataFrame with columns from the schema.
+
+        Returns:
+            DataFrame: Empty DataFrame with correct column types
+        """
+        if cls._schema is None:
+            return cls({})
+
+        from pavise._polars.validation import _extract_type_and_validators
+
+        type_hints = get_type_hints(cls._schema, include_extras=True)
+        columns = {}
+
+        for col_name, col_type in type_hints.items():
+            base_type, _validators, is_optional, _is_not_required = _extract_type_and_validators(
+                col_type
+            )
+
+            if get_origin(base_type) is Literal:
+                literal_values = get_args(base_type)
+                if literal_values:
+                    first_value = literal_values[0]
+                    base_type = type(first_value)
+
+            dtype = _get_dtype_for_type(base_type)
+            columns[col_name] = pl.Series([], dtype=dtype)
+
+        return cls(columns)

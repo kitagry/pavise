@@ -75,6 +75,17 @@ TYPE_CHECKERS = {
     ),
 }
 
+# Mapping from Python type to pandas dtype for creating empty DataFrames
+TYPE_TO_DTYPE = {
+    int: "int64",
+    float: "float64",
+    str: "object",
+    bool: "bool",
+    datetime: "datetime64[ns]",
+    date: "datetime64[ns]",
+    timedelta: "timedelta64[ns]",
+}
+
 
 def validate_dataframe(df: pd.DataFrame, schema: type, strict: bool = False) -> None:
     """
