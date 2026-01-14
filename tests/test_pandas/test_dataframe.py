@@ -50,6 +50,14 @@ class NotRequiredSchema(Protocol):
     email: NotRequiredColumn[Optional[str]]
 
 
+class DateSchema(Protocol):
+    event_date: date
+
+
+class NullableDateSchema(Protocol):
+    event_date: Optional[date]
+
+
 def test_dataframe_class_getitem_returns_class():
     """DataFrame[Schema] returns a class"""
     type_of = DataFrame[SimpleSchema]
@@ -572,3 +580,33 @@ def test_empty_creates_empty_dataframe_with_datetime_types():
         }
     )
     pd.testing.assert_frame_equal(result, expected)
+
+
+def test_datetime_schema_date_column():
+    """DataFrame[DateSchema] correctly validates date column"""
+    df = pd.DataFrame(
+        {
+            "event_date": [
+                date(2024, 1, 1),
+                pd.to_datetime("2024-01-02").date(),
+                datetime(2024, 1, 3),  # datetime is acceptable as date
+            ],
+        }
+    )
+    result = DataFrame[DateSchema](df)
+    assert isinstance(result, pd.DataFrame)
+
+
+def test_datetime_schema_date_column_nullable():
+    """DataFrame[NullableDateSchema] correctly validates nullable date column"""
+    df = pd.DataFrame(
+        {
+            "event_date": [
+                date(2024, 1, 1),
+                None,  # Nullable date accepts None
+                pd.NaT,  # Nullable date accepts pd.NaT
+            ],
+        }
+    )
+    result = DataFrame[NullableDateSchema](df)
+    assert isinstance(result, pd.DataFrame)

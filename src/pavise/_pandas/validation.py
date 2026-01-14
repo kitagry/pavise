@@ -44,6 +44,15 @@ def type_check_str(df: pd.Series | pd.Index) -> bool:
     return False
 
 
+def type_check_date(df: pd.Series | pd.Index) -> bool:
+    df = pd.Series(df)
+    if pd.api.types.is_datetime64_any_dtype(df):
+        return True
+    elif df.dtype == object:
+        return bool(df.apply(lambda x: isinstance(x, date) or pd.isna(x)).all())
+    return False
+
+
 TYPE_CHECKERS = {
     int: TypeChecker(
         dtype=pd.api.types.is_integer_dtype,
@@ -66,7 +75,7 @@ TYPE_CHECKERS = {
         value=lambda x: isinstance(x, (pd.Timestamp, datetime)) or pd.isna(x),
     ),
     date: TypeChecker(
-        dtype=pd.api.types.is_datetime64_any_dtype,
+        dtype=type_check_date,
         value=lambda x: isinstance(x, (pd.Timestamp, datetime, date)) or pd.isna(x),
     ),
     timedelta: TypeChecker(
