@@ -88,6 +88,60 @@ Validate the index type using the special ``__index__`` attribute:
 
    validated_df = DataFrame[Schema](df)
 
+Named Index Validation
+^^^^^^^^^^^^^^^^^^^^^^
+
+Use ``Annotated`` to validate both the index type and name:
+
+.. code-block:: python
+
+   from typing import Protocol, Annotated
+
+   class UserSchema(Protocol):
+       __index__: Annotated[int, "user_id"]  # Validates type AND name
+       username: str
+       score: float
+
+   # Create DataFrame with named index
+   df = pd.DataFrame(
+       {"username": ["alice", "bob"], "score": [95.0, 87.0]},
+       index=pd.Index([1, 2], name="user_id")
+   )
+
+   validated_df = DataFrame[UserSchema](df)
+
+   # This will fail - wrong index name
+   df_wrong = pd.DataFrame(
+       {"username": ["alice"], "score": [95.0]},
+       index=pd.Index([1], name="id")  # Expected "user_id"
+   )
+   # ValidationError: Index name expected 'user_id', got 'id'
+
+MultiIndex Validation
+^^^^^^^^^^^^^^^^^^^^^
+
+For MultiIndex, use a tuple of types with a tuple of names:
+
+.. code-block:: python
+
+   from typing import Protocol, Annotated
+
+   class RegionalSalesSchema(Protocol):
+       __index__: Annotated[tuple[str, int], ("region", "user_id")]
+       sales: float
+       quantity: int
+
+   # Create DataFrame with MultiIndex
+   df = pd.DataFrame(
+       {"sales": [100.0, 200.0, 150.0], "quantity": [5, 10, 7]},
+       index=pd.MultiIndex.from_tuples(
+           [("East", 1), ("East", 2), ("West", 1)],
+           names=["region", "user_id"]
+       )
+   )
+
+   validated_df = DataFrame[RegionalSalesSchema](df)
+
 Nullable Types
 --------------
 
