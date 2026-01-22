@@ -214,7 +214,7 @@ def test_dataframe_optional_type_raises_on_wrong_type():
             "age": ["20", "25", "30"],
         }
     )
-    with pytest.raises(ValidationError, match="Column 'age': expected int, got object"):
+    with pytest.raises(ValidationError, match="Column 'age': expected int, got (object|str)"):
         DataFrame[OptionalSchema](df)
 
 
@@ -610,3 +610,22 @@ def test_datetime_schema_date_column_nullable():
     )
     result = DataFrame[NullableDateSchema](df)
     assert isinstance(result, pd.DataFrame)
+
+
+def test_empty_creates_empty_dataframe_with_index_name():
+    """DataFrame.make_empty() creates an empty DataFrame with index name"""
+    result = DataFrame[IndexWithNameSchema].make_empty()
+
+    assert result.index.name == "user_id"
+    assert len(result) == 0
+    assert "value" in result.columns
+
+
+def test_empty_creates_empty_dataframe_with_multiindex_names():
+    """DataFrame.make_empty() creates an empty DataFrame with MultiIndex names"""
+    result = DataFrame[MultiIndexWithNamesSchema].make_empty()
+
+    assert isinstance(result.index, pd.MultiIndex)
+    assert result.index.names == ["region", "user_id"]
+    assert len(result) == 0
+    assert "value" in result.columns
