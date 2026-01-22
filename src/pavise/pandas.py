@@ -101,13 +101,22 @@ class DataFrame(pd.DataFrame, Generic[SchemaT_co]):
         if cls._schema is None:
             return cls({})
 
-        from pavise._pandas.validation import _extract_type_and_validators
+        from pavise._pandas.validation import (
+            _extract_index_name_type_and_validators,
+            _extract_type_and_validators,
+        )
 
         type_hints = get_type_hints(cls._schema, include_extras=True)
         columns = {}
+        index_name = None
+        index_base_type = None
 
         for col_name, col_type in type_hints.items():
             if col_name == INDEX_COLUMN_NAME:
+                # Extract index name from schema
+                index_base_type, index_name, _validators, _is_optional = (
+                    _extract_index_name_type_and_validators(col_type)
+                )
                 continue
 
             base_type, _validators, is_optional, _is_not_required = _extract_type_and_validators(
@@ -123,4 +132,18 @@ class DataFrame(pd.DataFrame, Generic[SchemaT_co]):
             dtype = _get_dtype_for_type(base_type)
             columns[col_name] = pd.Series([], dtype=dtype)
 
-        return cls(columns)
+        # Create pandas DataFrame first, set index name, then convert to typed DataFrame
+        raw_df = pd.DataFrame(columns)
+        if index_name is not None:
+            if isinstance(index_name, tuple):
+                # MultiIndex: create empty MultiIndex with names
+                level_types = get_args(index_base_type)
+                level_arrays = [
+                    pd.array([], dtype=_get_dtype_for_type(level_type))
+                    for level_type in level_types
+                ]
+                raw_df.index = pd.MultiIndex.from_arrays(level_arrays, names=list(index_name))
+            else:
+                # Single index: set index name
+                raw_df.index.name = index_name
+        return cls(raw_df)
