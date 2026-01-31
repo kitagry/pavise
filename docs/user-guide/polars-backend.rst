@@ -116,6 +116,62 @@ However, the same principles apply:
 
    result = process(validated_df)
 
+LazyFrame Support
+-----------------
+
+Pavise also supports polars LazyFrame for lazy evaluation workflows:
+
+.. code-block:: python
+
+   from pavise.polars import LazyFrame, DataFrame
+
+   class UserSchema(Protocol):
+       user_id: int
+       name: str
+
+   # Wrap a LazyFrame with schema validation
+   lf = pl.scan_csv("users.csv")
+   validated_lf = LazyFrame[UserSchema](lf)
+
+   # Schema is validated immediately (column existence and types)
+   # Value-based validators are applied on collect()
+   df: DataFrame[UserSchema] = validated_lf.collect()
+
+LazyFrame Validation Behavior
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+LazyFrame validation happens in two stages:
+
+1. **On construction**: Schema-level validation (column existence and types) using ``collect_schema()``
+2. **On collect()**: Full validation including value-based validators (Range, Unique, etc.)
+
+.. code-block:: python
+
+   from typing import Annotated
+   from pavise.validators import Range
+
+   class UserSchema(Protocol):
+       user_id: int
+       age: Annotated[int, Range(0, 150)]
+
+   lf = pl.LazyFrame({"user_id": [1, 2], "age": [25, 200]})
+
+   # Schema validation passes (types are correct)
+   validated_lf = LazyFrame[UserSchema](lf)
+
+   # Range validation fails on collect()
+   df = validated_lf.collect()  # Raises ValidationError: age out of range
+
+Creating Empty LazyFrames
+~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Like DataFrame, LazyFrame supports ``make_empty()``:
+
+.. code-block:: python
+
+   empty_lf = LazyFrame[UserSchema].make_empty()
+   # Returns LazyFrame with correct schema but no rows
+
 Differences from pandas Backend
 --------------------------------
 
@@ -123,6 +179,7 @@ Differences from pandas Backend
 2. **Type system**: polars has a richer type system (e.g., Categorical, Utf8)
 3. **Performance**: polars validation is generally faster
 4. **Index**: polars doesn't have an index concept, so ``__index__`` validation is not supported
+5. **LazyFrame**: polars backend supports LazyFrame for lazy evaluation workflows
 
 Method Chaining
 ---------------

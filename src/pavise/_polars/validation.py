@@ -120,6 +120,83 @@ def validate_dataframe(df: pl.DataFrame, schema: type, strict: bool = False) -> 
             raise ValidationError(f"Strict mode: unexpected columns {sorted(extra_cols)}")
 
 
+def validate_lazyframe_schema(lf: pl.LazyFrame, schema: type, strict: bool = False) -> None:
+    """
+    Validate that a Polars LazyFrame conforms to a Protocol schema.
+
+    Only validates schema (column existence and types) without collecting.
+    Value-based validators are NOT applied here.
+
+    Args:
+        lf: Polars LazyFrame to validate
+        schema: Protocol type defining the expected schema
+        strict: If True, raise error on extra columns not in schema
+    """
+    lf_schema = lf.collect_schema()
+    expected_cols = get_type_hints(schema, include_extras=True)
+
+    for col_name, col_type in expected_cols.items():
+        is_not_required = isinstance(col_type, type) and issubclass(col_type, NotRequiredColumn)
+        if is_not_required and col_name not in lf_schema.names():
+            continue
+        _check_lazyframe_column_exists(lf_schema, col_name)
+        _check_lazyframe_column_type(lf_schema, col_name, col_type)
+
+    if strict:
+        schema_cols = set(expected_cols.keys())
+        lf_cols = set(lf_schema.names())
+        extra_cols = lf_cols - schema_cols
+        if extra_cols:
+            raise ValidationError(f"Strict mode: unexpected columns {sorted(extra_cols)}")
+
+
+def _check_lazyframe_column_exists(lf_schema: pl.Schema, col_name: str) -> None:
+    """Check if a column exists in the LazyFrame schema."""
+    if col_name not in lf_schema.names():
+        raise ValidationError("missing", column_name=col_name)
+
+
+def _check_lazyframe_column_type(lf_schema: pl.Schema, col_name: str, expected_type: type) -> None:
+    """Check if a column has the expected type (schema-level only, no value validation)."""
+    base_type, _validators, _is_optional, _is_not_required = _extract_type_and_validators(
+        expected_type
+    )
+
+    col_dtype = lf_schema[col_name]
+
+    if isinstance(base_type, type) and issubclass(base_type, pl.DataType):
+        if col_dtype != base_type:
+            raise ValidationError(
+                f"expected {base_type.__name__}, got {col_dtype}",
+                column_name=col_name,
+            )
+        return
+
+    if get_origin(base_type) is Literal:
+        # Check base type of Literal (e.g., str for Literal["a", "b"], int for Literal[1, 2])
+        literal_args = get_args(base_type)
+        if literal_args:
+            literal_base_type = type(literal_args[0])
+            if literal_base_type in TYPE_CHECKERS:
+                checker = TYPE_CHECKERS[literal_base_type]
+                if not checker.dtype(col_dtype):
+                    raise ValidationError(
+                        f"expected {literal_base_type.__name__}, got {col_dtype}",
+                        column_name=col_name,
+                    )
+        return
+
+    if base_type not in TYPE_CHECKERS:
+        raise ValidationError(f"unsupported type: {base_type}", column_name=col_name)
+
+    checker = TYPE_CHECKERS[base_type]
+    if not checker.dtype(col_dtype):
+        raise ValidationError(
+            f"expected {base_type.__name__}, got {col_dtype}",
+            column_name=col_name,
+        )
+
+
 def _extract_type_and_validators(annotation: type) -> tuple[type, list, bool, bool]:
     """
     Extract base type, validators, nullable flag, and not-required flag from a type annotation.

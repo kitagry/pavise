@@ -153,4 +153,5 @@ Next Steps
 
 * Learn about :doc:`user-guide/validators` for data quality checks
 * Explore :doc:`user-guide/strict-mode` to reject extra columns
+* Check :doc:`user-guide/polars-backend` for polars DataFrame and LazyFrame support
 * Check :doc:`examples/index` for real-world use cases
