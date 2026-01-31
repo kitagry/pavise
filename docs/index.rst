@@ -8,11 +8,12 @@ Features
 --------
 
 * **Type-safe DataFrame validation** using Python's Protocol and structural subtyping
-* **Multiple backends**: Support for both pandas and polars
+* **Multiple backends**: Support for both pandas and polars (including LazyFrame)
 * **Runtime validation** with detailed error messages
 * **Annotated validators**: Attach validators to column types using ``typing.Annotated``
 * **Strict mode**: Optionally reject DataFrames with extra columns
 * **Covariant type parameters**: DataFrames with more columns can be used where fewer are expected
+* **LazyFrame support**: Validate polars LazyFrames with schema-level checks at construction and full validation on collect
 
 Quick Start
 -----------
