@@ -15,6 +15,31 @@ __all__ = ["DataFrame", "LazyFrame", "NotRequiredColumn"]
 SchemaT_co = TypeVar("SchemaT_co", covariant=True)
 
 
+def _build_empty_columns(schema: type) -> dict[str, pl.Series]:
+    """
+    Build empty column dict from a Protocol schema.
+
+    Used by both DataFrame.make_empty() and LazyFrame.make_empty().
+    """
+    from pavise._polars.validation import _extract_type_and_validators
+
+    type_hints = get_type_hints(schema, include_extras=True)
+    columns = {}
+
+    for col_name, col_type in type_hints.items():
+        base_type, _, _, _ = _extract_type_and_validators(col_type)
+
+        if get_origin(base_type) is Literal:
+            literal_values = get_args(base_type)
+            if literal_values:
+                base_type = type(literal_values[0])
+
+        dtype = _get_dtype_for_type(base_type)
+        columns[col_name] = pl.Series([], dtype=dtype)
+
+    return columns
+
+
 def _get_dtype_for_type(base_type: type) -> pl.DataType:
     """
     Get polars dtype for a given Python type.
@@ -90,26 +115,7 @@ class DataFrame(pl.DataFrame, Generic[SchemaT_co]):
         if cls._schema is None:
             return cls({})
 
-        from pavise._polars.validation import _extract_type_and_validators
-
-        type_hints = get_type_hints(cls._schema, include_extras=True)
-        columns = {}
-
-        for col_name, col_type in type_hints.items():
-            base_type, _validators, is_optional, _is_not_required = _extract_type_and_validators(
-                col_type
-            )
-
-            if get_origin(base_type) is Literal:
-                literal_values = get_args(base_type)
-                if literal_values:
-                    first_value = literal_values[0]
-                    base_type = type(first_value)
-
-            dtype = _get_dtype_for_type(base_type)
-            columns[col_name] = pl.Series([], dtype=dtype)
-
-        return cls(columns)
+        return cls(_build_empty_columns(cls._schema))
 
 
 class LazyFrame(pl.LazyFrame, Generic[SchemaT_co]):
@@ -170,21 +176,4 @@ class LazyFrame(pl.LazyFrame, Generic[SchemaT_co]):
         if cls._schema is None:
             return cls(pl.LazyFrame({}))
 
-        from pavise._polars.validation import _extract_type_and_validators
-
-        type_hints = get_type_hints(cls._schema, include_extras=True)
-        columns = {}
-
-        for col_name, col_type in type_hints.items():
-            base_type, _, _, _ = _extract_type_and_validators(col_type)
-
-            if get_origin(base_type) is Literal:
-                literal_values = get_args(base_type)
-                if literal_values:
-                    first_value = literal_values[0]
-                    base_type = type(first_value)
-
-            dtype = _get_dtype_for_type(base_type)
-            columns[col_name] = pl.Series([], dtype=dtype)
-
-        return cls(pl.DataFrame(columns).lazy())
+        return cls(pl.DataFrame(_build_empty_columns(cls._schema)).lazy())
