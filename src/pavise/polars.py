@@ -1,6 +1,6 @@
 """Polars backend for type-parameterized DataFrame with Protocol-based schema validation."""
 
-from typing import Generic, Literal, Optional, TypeVar, get_args, get_origin, get_type_hints
+from typing import Generic, Literal, TypeVar, get_args, get_origin, get_type_hints
 
 try:
     import polars as pl
@@ -80,7 +80,7 @@ class DataFrame(pl.DataFrame, Generic[SchemaT_co]):
     when ChildSchema has all columns of ParentSchema.
     """
 
-    _schema: Optional[type] = None
+    _schema: type | None = None
 
     def __class_getitem__(cls, schema: type):
         """Create a new DataFrame class with schema validation."""
@@ -130,7 +130,7 @@ class LazyFrame(pl.LazyFrame, Generic[SchemaT_co]):
     Value-based validators (Range, Unique, etc.) are only checked on collect().
     """
 
-    _schema: Optional[type] = None
+    _schema: type | None = None
 
     def __class_getitem__(cls, schema: type):
         """Create a new LazyFrame class with schema validation."""

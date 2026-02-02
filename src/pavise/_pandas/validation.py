@@ -34,7 +34,7 @@ class TypeChecker:
     """Type checker with both dtype-level and value-level validation."""
 
     dtype: Callable[[pd.Series | pd.Index], bool]  # Check dtype of entire Series
-    value: Callable[[object], bool]  # Check individual values
+    value: Callable[[Any], bool]  # Check individual values
 
 
 def type_check_str(df: pd.Series | pd.Index) -> bool:

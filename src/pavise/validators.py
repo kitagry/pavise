@@ -6,8 +6,9 @@ The actual validation logic is implemented in backend-specific modules:
 - _polars.validator_impl for polars
 """
 
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Callable
+from typing import Any
 
 
 @dataclass

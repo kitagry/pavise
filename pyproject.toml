@@ -6,7 +6,7 @@ build-backend = "hatchling.build"
 name = "pavise"
 description = "DataFrame validation library using Python Protocol for structural subtyping"
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 license = {text = "MIT"}
 authors = [
     {name = "kitagry"},
@@ -66,11 +66,11 @@ testpaths = ["tests"]
 pythonpath = ["src"]
 
 [tool.pyrefly]
-python_version = "3.9"
+python_version = "3.10"
 
 [tool.ruff]
 line-length = 100
-target-version = "py39"
+target-version = "py310"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "W", "UP"]

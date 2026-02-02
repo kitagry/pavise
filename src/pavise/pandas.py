@@ -4,9 +4,7 @@ from typing import (
     Any,
     Generic,
     Literal,
-    Optional,
     TypeVar,
-    Union,
     get_args,
     get_origin,
     get_type_hints,
@@ -22,7 +20,7 @@ __all__ = ["DataFrame", "NotRequiredColumn"]
 SchemaT_co = TypeVar("SchemaT_co", covariant=True)
 
 
-def _get_dtype_for_type(base_type: type) -> Union[str, pd.api.extensions.ExtensionDtype]:
+def _get_dtype_for_type(base_type: type) -> str | pd.api.extensions.ExtensionDtype:
     """
     Get pandas dtype for a given Python type.
 
@@ -58,7 +56,7 @@ class DataFrame(pd.DataFrame, Generic[SchemaT_co]):
     when ChildSchema has all columns of ParentSchema.
     """
 
-    _schema: Optional[type] = None
+    _schema: type | None = None
 
     def __class_getitem__(cls, schema: type):
         """Create a new DataFrame class with schema validation."""

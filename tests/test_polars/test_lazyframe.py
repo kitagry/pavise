@@ -1,6 +1,6 @@
 """Tests for LazyFrame[Schema] support."""
 
-from typing import Literal, Optional, Protocol
+from typing import Literal, Protocol
 
 import pytest
 
@@ -25,7 +25,7 @@ class SimpleSchema(Protocol):
 class MultiColumnSchema(Protocol):
     user_id: int
     name: str
-    age: Optional[int]
+    age: int | None
 
 
 class LiteralSchema(Protocol):
