@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from datetime import date, datetime, timedelta
 from typing import Annotated, Any, Literal, Optional, Protocol, Union
 
@@ -690,6 +692,22 @@ class UnionWithNoneSchema(Protocol):
     name: str
 
 
+# PEP 604 Union operator (str | int) test schemas
+class Pep604UnionTypeSchema(Protocol):
+    code: str | int
+    value: float
+
+
+class Pep604UnionMultiTypeSchema(Protocol):
+    mixed: int | str | float
+    value: int
+
+
+class Pep604UnionWithNoneSchema(Protocol):
+    code: int | str | None
+    name: str
+
+
 def test_dataframe_with_union_type_accepts_int():
     """DataFrame[Schema] with Union[int, str] accepts int values"""
     df = pd.DataFrame({"code": [1, 2, 3], "value": [1.0, 2.0, 3.0]})
@@ -759,6 +777,82 @@ def test_empty_creates_empty_dataframe_with_union_types():
     expected = pd.DataFrame(
         {
             "code": pd.Series([], dtype="int64"),  # Use first type in Union
+            "value": pd.Series([], dtype="float64"),
+        }
+    )
+    pd.testing.assert_frame_equal(result, expected)
+
+
+# PEP 604 Union operator (str | int) tests
+def test_dataframe_with_pep604_union_type_accepts_int():
+    """DataFrame[Schema] with str | int accepts int values"""
+    df = pd.DataFrame({"code": [1, 2, 3], "value": [1.0, 2.0, 3.0]})
+    result = DataFrame[Pep604UnionTypeSchema](df)
+    assert isinstance(result, pd.DataFrame)
+    pd.testing.assert_frame_equal(result, df)
+
+
+def test_dataframe_with_pep604_union_type_accepts_str():
+    """DataFrame[Schema] with str | int accepts str values"""
+    df = pd.DataFrame({"code": ["A", "B", "C"], "value": [1.0, 2.0, 3.0]})
+    result = DataFrame[Pep604UnionTypeSchema](df)
+    assert isinstance(result, pd.DataFrame)
+    pd.testing.assert_frame_equal(result, df)
+
+
+def test_dataframe_with_pep604_union_type_accepts_mixed():
+    """DataFrame[Schema] with str | int accepts mixed int/str values"""
+    df = pd.DataFrame({"code": [1, "B", 3, "D"], "value": [1.0, 2.0, 3.0, 4.0]})
+    result = DataFrame[Pep604UnionTypeSchema](df)
+    assert isinstance(result, pd.DataFrame)
+    pd.testing.assert_frame_equal(result, df)
+
+
+def test_dataframe_with_pep604_union_type_raises_on_wrong_type():
+    """DataFrame[Schema] with str | int raises error for invalid type"""
+    df = pd.DataFrame({"code": [1, 2.5, 3], "value": [1.0, 2.0, 3.0]})
+    with pytest.raises(ValidationError, match="Column 'code': expected str \\| int"):
+        DataFrame[Pep604UnionTypeSchema](df)
+
+
+def test_dataframe_with_pep604_union_multi_type_accepts_all_types():
+    """DataFrame[Schema] with int | str | float accepts all union types"""
+    df = pd.DataFrame({"mixed": [1, "text", 3.14, 42], "value": [1, 2, 3, 4]})
+    result = DataFrame[Pep604UnionMultiTypeSchema](df)
+    assert isinstance(result, pd.DataFrame)
+    pd.testing.assert_frame_equal(result, df)
+
+
+def test_dataframe_with_pep604_union_and_none_accepts_none():
+    """DataFrame[Schema] with int | str | None accepts None values"""
+    df = pd.DataFrame({"code": [1, "B", None, 4], "name": ["a", "b", "c", "d"]})
+    result = DataFrame[Pep604UnionWithNoneSchema](df)
+    assert isinstance(result, pd.DataFrame)
+    pd.testing.assert_frame_equal(result, df)
+
+
+def test_dataframe_with_pep604_union_and_none_accepts_mixed():
+    """DataFrame[Schema] with int | str | None accepts mixed values"""
+    df = pd.DataFrame({"code": [1, None, "C"], "name": ["a", "b", "c"]})
+    result = DataFrame[Pep604UnionWithNoneSchema](df)
+    assert isinstance(result, pd.DataFrame)
+    pd.testing.assert_frame_equal(result, df)
+
+
+def test_dataframe_with_pep604_union_and_none_raises_on_invalid_type():
+    """DataFrame[Schema] with int | str | None raises error for invalid type"""
+    df = pd.DataFrame({"code": [1, "B", 3.14], "name": ["a", "b", "c"]})
+    with pytest.raises(ValidationError, match="Column 'code': expected int \\| str"):
+        DataFrame[Pep604UnionWithNoneSchema](df)
+
+
+def test_empty_creates_empty_dataframe_with_pep604_union_types():
+    """DataFrame.make_empty() creates an empty DataFrame with PEP 604 Union types"""
+    result = DataFrame[Pep604UnionTypeSchema].make_empty()
+
+    expected = pd.DataFrame(
+        {
+            "code": pd.Series([], dtype="object"),  # Use first type in Union
             "value": pd.Series([], dtype="float64"),
         }
     )
