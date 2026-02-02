@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from typing import (
     Annotated,
+    Any,
     Callable,
     Literal,
     Union,
@@ -82,6 +83,10 @@ TYPE_CHECKERS = {
         dtype=pd.api.types.is_timedelta64_dtype,
         value=lambda x: isinstance(x, (pd.Timedelta, timedelta)) or pd.isna(x),
     ),
+    Any: TypeChecker(
+        dtype=lambda _: True,
+        value=lambda _: True,
+    ),
 }
 
 # Mapping from Python type to pandas dtype for creating empty DataFrames
@@ -93,6 +98,7 @@ TYPE_TO_DTYPE = {
     datetime: "datetime64[ns]",
     date: "datetime64[ns]",
     timedelta: "timedelta64[ns]",
+    Any: "object",
 }
 
 

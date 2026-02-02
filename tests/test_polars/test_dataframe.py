@@ -1,5 +1,5 @@
 from datetime import date, datetime, timedelta
-from typing import Annotated, Literal, Optional, Protocol
+from typing import Annotated, Any, Literal, Optional, Protocol
 
 import pytest
 
@@ -424,3 +424,47 @@ def test_empty_creates_empty_dataframe_with_datetime_types():
         }
     )
     assert result.equals(expected)
+
+
+class AnyTypeSchema(Protocol):
+    any_col: Any
+    user_id: int
+
+
+def test_dataframe_with_any_type_accepts_various_types():
+    """DataFrame[Schema] with Any type accepts columns with object/string dtype"""
+    df = pl.DataFrame(
+        {
+            "any_col": ["1", "string", "3.14", "True", "False"],
+            "user_id": [1, 2, 3, 4, 5],
+        }
+    )
+    result = DataFrame[AnyTypeSchema](df)
+    assert isinstance(result, pl.DataFrame)
+    assert result.equals(df)
+
+
+def test_dataframe_with_any_type_accepts_int_column():
+    """DataFrame[Schema] with Any type accepts int column"""
+    df = pl.DataFrame(
+        {
+            "any_col": [1, 2, 3],
+            "user_id": [1, 2, 3],
+        }
+    )
+    result = DataFrame[AnyTypeSchema](df)
+    assert isinstance(result, pl.DataFrame)
+    assert result.equals(df)
+
+
+def test_dataframe_with_any_type_accepts_str_column():
+    """DataFrame[Schema] with Any type accepts str column"""
+    df = pl.DataFrame(
+        {
+            "any_col": ["a", "b", "c"],
+            "user_id": [1, 2, 3],
+        }
+    )
+    result = DataFrame[AnyTypeSchema](df)
+    assert isinstance(result, pl.DataFrame)
+    assert result.equals(df)

@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from typing import (
     Annotated,
+    Any,
     Callable,
     Literal,
     Union,
@@ -76,6 +77,10 @@ TYPE_CHECKERS = {
         dtype=lambda dtype: dtype == pl.Duration,
         value=lambda x: isinstance(x, timedelta),
     ),
+    Any: TypeChecker(
+        dtype=lambda _: True,
+        value=lambda _: True,
+    ),
 }
 
 # Mapping from Python type to polars dtype for creating empty DataFrames
@@ -87,6 +92,7 @@ TYPE_TO_DTYPE = {
     datetime: pl.Datetime(),
     date: pl.Date(),
     timedelta: pl.Duration(),
+    Any: pl.Utf8(),
 }
 
 
