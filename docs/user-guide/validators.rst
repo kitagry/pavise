@@ -140,8 +140,8 @@ on both the pandas and polars backends, including pyarrow-backed pandas string c
 
 The regex syntax follows the engine that runs it: Python's ``re`` for object and
 ``string[python]`` columns, RE2 for pyarrow-backed pandas columns, and the Rust ``regex``
-crate for polars. Features such as lookarounds and backreferences are therefore only
-available on Python ``re``.
+crate for polars. Lookarounds and backreferences are not part of RE2 or the Rust ``regex``
+crate, and verbose mode (``(?x)``) is not available on RE2.
 
 On pyarrow-backed pandas columns, which syntax is accepted also depends on the pandas
 version: pandas checks the pattern with Python's ``re`` before handing it to RE2, and pandas 3

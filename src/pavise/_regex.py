@@ -22,8 +22,15 @@ def fullmatch_pattern(pattern: str) -> str:
     flags_match = _LEADING_FLAGS.match(pattern)
     if not flags_match:
         return f"^(?:{pattern})$"
-    letters = dict.fromkeys(c for c in flags_match.group() if c.isalpha())
-    return f"^(?{''.join(letters)}:{pattern[flags_match.end() :]})$"
+    letters = "".join(dict.fromkeys(c for c in flags_match.group() if c.isalpha()))
+    body = pattern[flags_match.end() :]
+    if "x" in letters and "#" in body.rsplit("\n", 1)[-1]:
+        # In verbose mode a trailing "# comment" runs to the end of the line and would swallow
+        # the closing ")"; the newline ends it and is itself ignored as whitespace. Only added
+        # when a comment is possible: Rust's regex allows "(?-x)" mid-pattern, after which the
+        # newline would be a literal the value must contain
+        body += "\n"
+    return f"^(?{letters}:{body})$"
 
 
 def invalid_pattern_error(pattern: str, col_name: str, cause: Exception) -> ValidationError:

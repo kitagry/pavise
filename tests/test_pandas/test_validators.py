@@ -464,3 +464,16 @@ def test_regex_validator_reports_re2_unsupported_syntax_on_empty_column(dtype: s
     df = pd.DataFrame({"v": _string_series([], dtype)})
     with pytest.raises(ValidationError, match=r"v.*invalid regex pattern"):
         DataFrame[Schema](df)
+
+
+# RE2, used for pyarrow-backed columns, has no verbose mode at all
+@pytest.mark.parametrize("dtype", ["object", "string[python]"])
+def test_regex_validator_accepts_verbose_pattern_ending_in_comment(dtype: str):
+    """Verbose patterns ending in a comment behave as on polars (these paths use re.fullmatch)"""
+
+    class Schema(Protocol):
+        v: Annotated[str, Regex(r"(?x)[a-z]+  # letters")]
+
+    DataFrame[Schema](pd.DataFrame({"v": _string_series(["abc"], dtype)}))
+    with pytest.raises(ValidationError, match="v.*pattern"):
+        DataFrame[Schema](pd.DataFrame({"v": _string_series(["abc1"], dtype)}))

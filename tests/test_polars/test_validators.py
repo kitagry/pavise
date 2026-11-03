@@ -417,3 +417,14 @@ def test_regex_validator_rejects_pattern_that_only_compiles_once_wrapped():
 
     with pytest.raises(ValidationError, match=r"v.*invalid regex pattern"):
         DataFrame[Schema](pl.DataFrame({"v": ["axyz"]}))
+
+
+def test_regex_validator_accepts_verbose_pattern_ending_in_comment():
+    """A trailing comment in verbose mode must not swallow the anchoring group"""
+
+    class Schema(Protocol):
+        v: Annotated[str, Regex(r"(?x)[a-z]+  # letters")]
+
+    DataFrame[Schema](pl.DataFrame({"v": ["abc"]}))
+    with pytest.raises(ValidationError, match="v.*pattern"):
+        DataFrame[Schema](pl.DataFrame({"v": ["abc1"]}))
