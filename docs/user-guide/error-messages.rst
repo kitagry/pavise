@@ -99,6 +99,35 @@ Output:
      Row 3: -5
      Row 5: 300
 
+Comparison Validators (Ge / Gt / Le / Lt)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   from typing import Annotated
+   from pavise.validators import Ge
+
+   class Schema(Protocol):
+       price: Annotated[int, Ge(0)]
+
+   df = pd.DataFrame({"price": [10, -1, 30, -20]})
+   try:
+       validated_df = DataFrame[Schema](df)
+   except ValidationError as e:
+       print(e)
+
+Output:
+
+.. code-block:: text
+
+   Column 'price': values must be >= 0
+
+   Sample invalid values (showing first 2 of 2):
+     Row 1: -1
+     Row 3: -20
+
+``Gt``, ``Le`` and ``Lt`` report ``values must be > {value}``, ``<= {value}`` and ``< {value}`` respectively.
+
 Unique Validator
 ~~~~~~~~~~~~~~~~
 

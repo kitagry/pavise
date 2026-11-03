@@ -5,7 +5,7 @@ import pytest
 
 from pavise.exceptions import ValidationError
 from pavise.polars import DataFrame
-from pavise.validators import Custom, In, MaxLen, MinLen, Range, Regex, Unique
+from pavise.validators import Custom, Ge, Gt, In, Le, Lt, MaxLen, MinLen, Range, Regex, Unique
 
 
 class AgeSchema(Protocol):
@@ -144,3 +144,97 @@ def test_custom_validator_rejects_invalid_values():
     df = pl.DataFrame({"value": [1, -5, 3]})
     with pytest.raises(ValidationError, match="value.*must be positive"):
         DataFrame[CustomValidatorSchema](df)
+
+
+class GeSchema(Protocol):
+    score: Annotated[int, Ge(0)]
+
+
+class GtSchema(Protocol):
+    score: Annotated[int, Gt(0)]
+
+
+class LeSchema(Protocol):
+    score: Annotated[int, Le(100)]
+
+
+class LtSchema(Protocol):
+    score: Annotated[int, Lt(100)]
+
+
+class OptionalGeSchema(Protocol):
+    score: Annotated[float | None, Ge(0)]
+
+
+@pytest.mark.parametrize(
+    "schema, values",
+    [
+        (GeSchema, [0, 1, 1000]),
+        (GtSchema, [1, 1000]),
+        (LeSchema, [-1000, 99, 100]),
+        (LtSchema, [-1000, 99]),
+    ],
+)
+def test_comparison_validator_accepts_values_satisfying_bound(
+    schema: type[Any], values: list[int]
+) -> None:
+    """Comparison validators accept values that satisfy the bound, including inclusive edges"""
+    df = pl.DataFrame({"score": values})
+    result = DataFrame[schema](df)
+    assert isinstance(result, pl.DataFrame)
+
+
+@pytest.mark.parametrize(
+    "schema, values, expected_message",
+    [
+        (GeSchema, [5, -1], "score.*>= 0"),
+        (GtSchema, [5, 0], "score.*> 0"),
+        (LeSchema, [5, 101], "score.*<= 100"),
+        (LtSchema, [5, 100], "score.*< 100"),
+    ],
+)
+def test_comparison_validator_rejects_values_violating_bound(
+    schema: type[Any], values: list[int], expected_message: str
+) -> None:
+    """Comparison validators reject values that violate the bound, including exclusive edges"""
+    df = pl.DataFrame({"score": values})
+    with pytest.raises(ValidationError, match=expected_message):
+        DataFrame[schema](df)
+
+
+def test_comparison_validator_ignores_null_in_optional_column():
+    """Comparison validators skip nulls in Optional columns like Range does"""
+    df = pl.DataFrame({"score": [1.5, None, 0.0]})
+    result = DataFrame[OptionalGeSchema](df)
+    assert isinstance(result, pl.DataFrame)
+
+
+class FloatGeSchema(Protocol):
+    score: Annotated[float, Ge(0)]
+
+
+class FloatLeSchema(Protocol):
+    score: Annotated[float, Le(100)]
+
+
+@pytest.mark.parametrize("schema", [FloatGeSchema, FloatLeSchema])
+def test_comparison_validator_rejects_nan(schema: type[Any]) -> None:
+    """NaN satisfies no bound, even though polars orders NaN above every number"""
+    df = pl.DataFrame({"score": [1.0, float("nan")]})
+    with pytest.raises(ValidationError, match="score"):
+        DataFrame[schema](df)
+
+
+class StrictGe(Ge):
+    pass
+
+
+class SubclassGeSchema(Protocol):
+    score: Annotated[int, StrictGe(0)]
+
+
+def test_comparison_validator_subclass_is_applied():
+    """Subclasses of comparison validators are dispatched like the base class"""
+    df = pl.DataFrame({"score": [1, -1]})
+    with pytest.raises(ValidationError, match="score.*>= 0"):
+        DataFrame[SubclassGeSchema](df)

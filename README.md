@@ -140,6 +140,29 @@ invalid_df = pd.DataFrame({
 DataFrame[UserSchema](invalid_df)  # ValidationError
 ```
 
+Available validators:
+
+| Validator | Description |
+|-----------|-------------|
+| `Range(min, max)` | Numeric values within `[min, max]` |
+| `Ge(value)` / `Gt(value)` | Numeric values `>= value` / `> value` |
+| `Le(value)` / `Lt(value)` | Numeric values `<= value` / `< value` |
+| `Unique()` | No duplicate values |
+| `In(values)` | Values within an allowed set |
+| `Regex(pattern)` | Strings matching a regular expression |
+| `MinLen(n)` / `MaxLen(n)` | String length bounds |
+| `Custom(func, message)` | Custom validation function |
+
+Use `Ge` / `Gt` / `Le` / `Lt` for one-sided bounds instead of `Range(0, float("inf"))`:
+
+```python
+from pavise.validators import Ge, Gt
+
+class OrderSchema(Protocol):
+    price: Annotated[float, Ge(0)]
+    quantity: Annotated[int, Gt(0)]
+```
+
 ### Union Types
 
 Union types allow columns to accept multiple different types:

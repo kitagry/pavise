@@ -1,14 +1,23 @@
 """Pandas-specific validator implementations."""
 
+import operator
 from typing import Any
 
 import pandas as pd
 
 from pavise.exceptions import ValidationError
-from pavise.validators import Custom, In, MaxLen, MinLen, Range, Regex, Unique
+from pavise.validators import Custom, Ge, Gt, In, Le, Lt, MaxLen, MinLen, Range, Regex, Unique
 
 # Maximum number of invalid sample values to show in error messages
 MAX_SAMPLE_SIZE = 5
+
+# Maps each comparison validator to the operator that detects violations and its symbol
+_COMPARISONS = {
+    Ge: (operator.lt, ">="),
+    Gt: (operator.le, ">"),
+    Le: (operator.gt, "<="),
+    Lt: (operator.ge, "<"),
+}
 
 
 def apply_validator(series: pd.Series, validator: Any, col_name: str) -> None:
@@ -25,6 +34,8 @@ def apply_validator(series: pd.Series, validator: Any, col_name: str) -> None:
     """
     if isinstance(validator, Range):
         _validate_range(series, validator, col_name)
+    elif isinstance(validator, (Ge, Gt, Le, Lt)):
+        _validate_comparison(series, validator, col_name)
     elif isinstance(validator, Unique):
         _validate_unique(series, col_name)
     elif isinstance(validator, In):
@@ -70,6 +81,25 @@ def _validate_range(series: pd.Series, validator: Range, col_name: str) -> None:
     raise ValidationError.new_with_samples(
         col_name,
         f"values must be in range [{validator.min}, {validator.max}]",
+        samples,
+        total_invalid,
+        format_value=str,
+    )
+
+
+def _validate_comparison(series: pd.Series, validator: Ge | Gt | Le | Lt, col_name: str) -> None:
+    """Validate that all values in series satisfy the comparison against the bound."""
+    violates, symbol = next(
+        entry for cls, entry in _COMPARISONS.items() if isinstance(validator, cls)
+    )
+    invalid_mask = violates(series, validator.value)
+    if not invalid_mask.any():
+        return
+
+    samples, total_invalid = _get_invalid_samples(series, invalid_mask)
+    raise ValidationError.new_with_samples(
+        col_name,
+        f"values must be {symbol} {validator.value}",
         samples,
         total_invalid,
         format_value=str,
