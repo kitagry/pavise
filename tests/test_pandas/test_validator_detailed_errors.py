@@ -5,7 +5,7 @@ import pytest
 
 from pavise.exceptions import ValidationError
 from pavise.pandas import DataFrame
-from pavise.validators import In, Range, Regex, Unique
+from pavise.validators import Ge, In, Range, Regex, Unique
 
 
 class RangeSchema(Protocol):
@@ -106,3 +106,23 @@ def test_regex_validator_error_shows_non_matching_values():
     assert error_message.startswith("Column 'email': contains values that don't match the pattern")
     assert "Row 1: 'invalid'" in error_message
     assert "Row 3: 'bad@'" in error_message
+
+
+class GeSchema(Protocol):
+    score: Annotated[int, Ge(0)]
+
+
+def test_comparison_validator_error_shows_sample_invalid_values():
+    """Comparison validator error should show sample values that violate the bound"""
+    df = pd.DataFrame({"score": [5, -1, 3, -20]})
+
+    with pytest.raises(ValidationError) as exc_info:
+        DataFrame[GeSchema](df)
+
+    error = exc_info.value
+    assert error.column_name == "score"
+    assert error.invalid_samples == [(1, -1), (3, -20)]
+    error_message = str(error)
+    assert error_message.startswith("Column 'score': values must be >= 0")
+    assert "Row 1: -1" in error_message
+    assert "Row 3: -20" in error_message

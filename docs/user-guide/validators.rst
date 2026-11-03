@@ -35,6 +35,42 @@ Error message example:
      Row 3: -5
      Row 5: 300
 
+Ge / Gt / Le / Lt
+~~~~~~~~~~~~~~~~~
+
+Validate one-sided numeric bounds. Use these instead of ``Range(0, float("inf"))``.
+
+- ``Ge(value)``: values must be greater than or equal to ``value``
+- ``Gt(value)``: values must be strictly greater than ``value``
+- ``Le(value)``: values must be less than or equal to ``value``
+- ``Lt(value)``: values must be strictly less than ``value``
+
+.. code-block:: python
+
+   from typing import Annotated, Optional, Protocol
+   from pavise.validators import Ge, Gt, Le, Lt
+   from pavise.pandas import DataFrame
+
+   class Schema(Protocol):
+       price: Annotated[float, Ge(0)]
+       quantity: Annotated[int, Gt(0)]
+       discount: Annotated[float, Ge(0), Lt(1)]
+       percentage: Annotated[Optional[float], Le(100)]
+
+   validated_df = DataFrame[Schema](df)
+
+As with ``Range``, null values in ``Optional`` columns are not checked.
+
+Error message example:
+
+.. code-block:: text
+
+   ValidationError: Column 'price': values must be >= 0
+
+   Sample invalid values (showing first 2 of 2):
+     Row 1: -1.0
+     Row 3: -20.0
+
 Unique
 ~~~~~~
 

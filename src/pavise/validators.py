@@ -24,6 +24,50 @@ class Range:
 
 
 @dataclass
+class Ge:
+    """Validate that numeric values are greater than or equal to a bound.
+
+    Example:
+        price: Annotated[float, Ge(0)]
+    """
+
+    value: float
+
+
+@dataclass
+class Gt:
+    """Validate that numeric values are strictly greater than a bound.
+
+    Example:
+        quantity: Annotated[int, Gt(0)]
+    """
+
+    value: float
+
+
+@dataclass
+class Le:
+    """Validate that numeric values are less than or equal to a bound.
+
+    Example:
+        percentage: Annotated[float, Le(100)]
+    """
+
+    value: float
+
+
+@dataclass
+class Lt:
+    """Validate that numeric values are strictly less than a bound.
+
+    Example:
+        temperature: Annotated[float, Lt(1000)]
+    """
+
+    value: float
+
+
+@dataclass
 class Unique:
     """Validate that column values are unique (no duplicates).
 
