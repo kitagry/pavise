@@ -1,6 +1,15 @@
 pavise.exceptions
 =================
 
+PaviseError
+-----------
+
+Base class for all exceptions raised by Pavise. ``PatrolError`` is kept as an
+alias for backward compatibility.
+
+.. autoclass:: pavise.exceptions.PaviseError
+   :show-inheritance:
+
 ValidationError
 ---------------
 
