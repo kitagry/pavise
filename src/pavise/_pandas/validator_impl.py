@@ -1,6 +1,7 @@
 """Pandas-specific validator implementations."""
 
 import operator
+from collections.abc import Callable
 from typing import Any
 
 import pandas as pd
@@ -19,6 +20,24 @@ _COMPARISONS = {
     Lt: (operator.ge, "<"),
 }
 
+_BOUND_VALIDATORS = (Range, *_COMPARISONS)
+
+# infer_dtype kinds of object columns whose values can be ordered against a bound
+_ORDERABLE_OBJECT_KINDS = frozenset(
+    {
+        "integer",
+        "floating",
+        "mixed-integer-float",
+        "decimal",
+        "date",
+        "datetime",
+        "datetime64",
+        "timedelta",
+        "timedelta64",
+        "time",
+    }
+)
+
 
 def apply_validator(series: pd.Series, validator: Any, col_name: str) -> None:
     """
@@ -32,6 +51,9 @@ def apply_validator(series: pd.Series, validator: Any, col_name: str) -> None:
     Raises:
         ValueError: if validation fails
     """
+    if isinstance(validator, _BOUND_VALIDATORS):
+        _require_orderable(series, validator, col_name)
+
     if isinstance(validator, Range):
         _validate_range(series, validator, col_name)
     elif isinstance(validator, (Ge, Gt, Le, Lt)):
@@ -71,9 +93,48 @@ def _get_invalid_samples(
     return samples, total_invalid
 
 
+def _require_orderable(series: pd.Series, validator: Any, col_name: str) -> None:
+    """Reject columns that cannot be meaningfully ordered against a bound."""
+    # bool counts as numeric in pandas but not in polars; exclude it so both backends agree
+    if pd.api.types.is_bool_dtype(series):
+        orderable = False
+    elif (
+        pd.api.types.is_numeric_dtype(series)
+        or pd.api.types.is_datetime64_any_dtype(series)
+        or pd.api.types.is_timedelta64_dtype(series)
+    ):
+        orderable = True
+    elif series.dtype == object:
+        # Any-typed or Decimal columns land in object dtype; polars accepts the equivalent dtypes
+        orderable = pd.api.types.infer_dtype(series, skipna=True) in _ORDERABLE_OBJECT_KINDS
+    else:
+        orderable = False
+    if not orderable:
+        raise ValidationError(
+            f"{type(validator).__name__} requires a numeric or temporal column, got {series.dtype}",
+            column_name=col_name,
+        )
+
+
+def _compare(
+    series: pd.Series, op: Callable[[Any, Any], Any], bound: Any, validator: Any, col_name: str
+) -> pd.Series:
+    """Compare series with a bound, reporting an incomparable bound as a ValidationError."""
+    try:
+        return op(series, bound)
+    except TypeError as e:
+        raise ValidationError(
+            f"{type(validator).__name__} bound {bound!r} cannot be compared with "
+            f"{series.dtype} values",
+            column_name=col_name,
+        ) from e
+
+
 def _validate_range(series: pd.Series, validator: Range, col_name: str) -> None:
     """Validate that all values in series are within the specified range."""
-    invalid_mask = (series < validator.min) | (series > validator.max)
+    invalid_mask = _compare(series, operator.lt, validator.min, validator, col_name) | _compare(
+        series, operator.gt, validator.max, validator, col_name
+    )
     if not invalid_mask.any():
         return
 
@@ -92,7 +153,7 @@ def _validate_comparison(series: pd.Series, validator: Ge | Gt | Le | Lt, col_na
     violates, symbol = next(
         entry for cls, entry in _COMPARISONS.items() if isinstance(validator, cls)
     )
-    invalid_mask = violates(series, validator.value)
+    invalid_mask = _compare(series, violates, validator.value, validator, col_name)
     if not invalid_mask.any():
         return
 

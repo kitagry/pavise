@@ -45,6 +45,15 @@ Validate one-sided numeric bounds. Use these instead of ``Range(0, float("inf"))
 - ``Le(value)``: values must be less than or equal to ``value``
 - ``Lt(value)``: values must be strictly less than ``value``
 
+.. note::
+
+   ``Range``, ``Ge``, ``Gt``, ``Le`` and ``Lt`` require a numeric (integer, float, Decimal) or
+   temporal (date, datetime, timedelta) column. Applying them to any other column, including
+   ``bool`` and string columns, raises ``ValidationError``
+   (for example ``Column 'name': Ge requires a numeric or temporal column, got object``) on both
+   backends. A bound that cannot be compared with the column, such as ``Ge(0)`` on a datetime
+   column, also raises ``ValidationError``.
+
 .. code-block:: python
 
    from typing import Annotated, Optional, Protocol

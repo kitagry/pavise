@@ -1,10 +1,11 @@
+from datetime import datetime
 from typing import Annotated, Any, Protocol
 
 import polars as pl
 import pytest
 
 from pavise.exceptions import ValidationError
-from pavise.polars import DataFrame
+from pavise.polars import DataFrame, LazyFrame
 from pavise.validators import Custom, Ge, Gt, In, Le, Lt, MaxLen, MinLen, Range, Regex, Unique
 
 
@@ -285,3 +286,80 @@ def test_comparison_validator_subclass_is_applied():
     df = pl.DataFrame({"score": [1, -1]})
     with pytest.raises(ValidationError, match="score.*>= 0"):
         DataFrame[SubclassGeSchema](df)
+
+
+@pytest.mark.parametrize(
+    "validator, expected_name",
+    [
+        (Range(0, 10), "Range"),
+        (Ge(0), "Ge"),
+        (Gt(0), "Gt"),
+        (Le(0), "Le"),
+        (Lt(0), "Lt"),
+    ],
+)
+def test_numeric_validator_rejects_string_column(validator: Any, expected_name: str) -> None:
+    """Numeric validators raise ValidationError on a non-numeric column instead of comparing"""
+
+    class Schema(Protocol):
+        v: Annotated[str, validator]
+
+    df = pl.DataFrame({"v": ["a", "b"]})
+    with pytest.raises(
+        ValidationError, match=f"v.*{expected_name} requires a numeric or temporal column"
+    ):
+        DataFrame[Schema](df)
+
+
+def test_numeric_validator_rejects_bool_column() -> None:
+    """bool is not treated as numeric, so both backends reject it the same way"""
+
+    class Schema(Protocol):
+        v: Annotated[bool, Ge(0)]
+
+    df = pl.DataFrame({"v": [True, False]})
+    with pytest.raises(ValidationError, match="v.*Ge requires a numeric or temporal column"):
+        DataFrame[Schema](df)
+
+
+def test_numeric_validator_error_sets_column_name() -> None:
+    """The dtype rejection is attributed to the column like other validation errors"""
+
+    class Schema(Protocol):
+        v: Annotated[str, Ge(0)]
+
+    with pytest.raises(ValidationError) as exc_info:
+        DataFrame[Schema](pl.DataFrame({"v": ["a"]}))
+    assert exc_info.value.column_name == "v"
+
+
+def test_bound_validator_accepts_datetime_column() -> None:
+    """Datetime columns are orderable, so datetime bounds keep working"""
+
+    class Schema(Protocol):
+        # Bounds are annotated as float until #30 widens them; datetime works at runtime
+        v: Annotated[datetime, Ge(datetime(2020, 1, 1))]  # pyright: ignore[reportArgumentType]
+
+    DataFrame[Schema](pl.DataFrame({"v": [datetime(2021, 1, 1)]}))
+    with pytest.raises(ValidationError, match="v.*>= 2020-01-01"):
+        DataFrame[Schema](pl.DataFrame({"v": [datetime(2019, 1, 1)]}))
+
+
+def test_bound_validator_rejects_incomparable_bound() -> None:
+    """A bound of the wrong kind raises ValidationError instead of a bare polars error"""
+
+    class Schema(Protocol):
+        v: Annotated[datetime, Ge(0)]
+
+    with pytest.raises(ValidationError, match="v.*Ge bound 0 cannot be compared"):
+        DataFrame[Schema](pl.DataFrame({"v": [datetime(2021, 1, 1)]}))
+
+
+def test_lazyframe_rejects_non_numeric_column_at_construction() -> None:
+    """Orderability depends only on the dtype, so LazyFrame rejects it without collecting"""
+
+    class Schema(Protocol):
+        v: Annotated[str, Ge(0)]
+
+    with pytest.raises(ValidationError, match="v.*Ge requires a numeric or temporal column"):
+        LazyFrame[Schema](pl.LazyFrame({"v": ["a"]}))

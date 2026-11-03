@@ -222,11 +222,18 @@ def _check_lazyframe_column_exists(lf_schema: pl.Schema, col_name: str) -> None:
 
 def _check_lazyframe_column_type(lf_schema: pl.Schema, col_name: str, expected_type: type) -> None:
     """Check if a column has the expected type (schema-level only, no value validation)."""
-    base_type, _validators, _is_optional, _is_not_required = _extract_type_and_validators(
+    from pavise._polars.validator_impl import BOUND_VALIDATORS, require_orderable_dtype
+
+    base_type, validators, _is_optional, _is_not_required = _extract_type_and_validators(
         expected_type
     )
 
     col_dtype = lf_schema[col_name]
+
+    # Orderability depends only on the dtype, so reject it here instead of waiting for collect()
+    for validator in validators:
+        if isinstance(validator, BOUND_VALIDATORS):
+            require_orderable_dtype(col_dtype, validator, col_name)
 
     if isinstance(base_type, type) and issubclass(base_type, pl.DataType):
         if col_dtype != base_type:
