@@ -13,7 +13,7 @@ import pytest
 
 from pavise.exceptions import ValidationError
 from pavise.pandas import DataFrame
-from pavise.validators import Range
+from pavise.validators import MinLen, Range
 
 
 class StrSchema(Protocol):
@@ -54,6 +54,14 @@ class LiteralSchema(Protocol):
 
 class RangeSchema(Protocol):
     v: Annotated[int, Range(0, 10)]
+
+
+class OptionalRangeSchema(Protocol):
+    v: Annotated[int | None, Range(0, 10)]
+
+
+class OptionalMinLenSchema(Protocol):
+    v: Annotated[str | None, MinLen(3)]
 
 
 class StrIndexSchema(Protocol):
@@ -215,3 +223,63 @@ def test_str_index_with_non_str_value_raises():
 
     with pytest.raises(ValidationError, match="^Index expected str, got object$"):
         DataFrame[StrIndexSchema](df)
+
+
+@pytest.mark.parametrize(
+    ("schema", "df", "samples"),
+    [
+        pytest.param(
+            IntSchema,
+            pd.DataFrame({"v": ["a", "x", "y"]}, index=pd.Index([0, 0, 0])),
+            [(0, "a"), (0, "x"), (0, "y")],
+            id="type-check",
+        ),
+        pytest.param(
+            RangeSchema,
+            pd.DataFrame({"v": [5, 20, 3, 30]}, index=pd.Index([0, 0, 1, 1])),
+            [(0, 20), (1, 30)],
+            id="validator",
+        ),
+        pytest.param(
+            LiteralSchema,
+            pd.DataFrame({"v": ["a", "z", "w"]}, index=pd.Index(["k", "k", "k"])),
+            [("k", "z"), ("k", "w")],
+            id="literal",
+        ),
+    ],
+)
+def test_samples_are_positional_with_duplicate_index(
+    schema: type, df: pd.DataFrame, samples: list[tuple[Any, Any]]
+):
+    """Duplicate index labels must not pull in every row sharing the label"""
+    with pytest.raises(ValidationError) as exc_info:
+        DataFrame[schema](df)
+
+    assert exc_info.value.invalid_samples == samples
+
+
+@pytest.mark.parametrize(
+    ("schema", "df", "samples"),
+    [
+        pytest.param(
+            OptionalRangeSchema,
+            pd.DataFrame({"v": pd.array([1, None, 20], dtype="Int64")}),
+            [(2, 20)],
+            id="nullable-int",
+        ),
+        pytest.param(
+            OptionalMinLenSchema,
+            pd.DataFrame({"v": pd.array(["abcd", None, "a"], dtype="string")}),
+            [(2, "a")],
+            id="nullable-string",
+        ),
+    ],
+)
+def test_samples_skip_na_in_nullable_mask(
+    schema: type, df: pd.DataFrame, samples: list[tuple[Any, Any]]
+):
+    """Nullable dtypes yield NA in the invalid mask; NA rows are not violations"""
+    with pytest.raises(ValidationError) as exc_info:
+        DataFrame[schema](df)
+
+    assert exc_info.value.invalid_samples == samples

@@ -5,13 +5,14 @@ and counts as a per-element check would.
 """
 
 from datetime import date, datetime
-from typing import Any, Protocol
+from typing import Annotated, Any, Protocol
 
 import polars as pl
 import pytest
 
 from pavise.exceptions import ValidationError
 from pavise.polars import DataFrame
+from pavise.validators import Unique
 
 
 class IntSchema(Protocol):
@@ -158,3 +159,34 @@ def test_error_reports_exact_samples(
 )
 def test_valid_dataframe_passes(schema: type, df: pl.DataFrame):
     DataFrame[schema](df)
+
+
+class UniqueSchema(Protocol):
+    v: Annotated[int, Unique()]
+
+
+@pytest.mark.parametrize(
+    ("schema", "df", "samples"),
+    [
+        pytest.param(
+            UnionSchema,
+            pl.DataFrame({"v": [1.5, 2.0, 1.5]}),
+            [(0, 1.5), (1, 2.0), (2, 1.5)],
+            id="type-check",
+        ),
+        pytest.param(
+            UniqueSchema,
+            pl.DataFrame({"v": [1, 2, 1, 3]}),
+            [(0, 1), (2, 1)],
+            id="validator",
+        ),
+    ],
+)
+def test_samples_are_positional_with_repeated_values(
+    schema: type, df: pl.DataFrame, samples: list[tuple[Any, Any]]
+):
+    """Polars has no index labels; samples carry row positions and scalar values"""
+    with pytest.raises(ValidationError) as exc_info:
+        DataFrame[schema](df)
+
+    assert exc_info.value.invalid_samples == samples

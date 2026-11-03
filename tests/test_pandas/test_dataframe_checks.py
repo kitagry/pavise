@@ -228,3 +228,13 @@ def test_make_empty_passes_row_wise_apply_checks():
     result = DataFrame[ApplyRowSchema].make_empty()
 
     assert len(result) == 0
+
+
+def test_row_check_samples_are_positional_with_duplicate_index():
+    """Duplicate index labels must not pull valid rows into the samples"""
+    df = pd.DataFrame({"start_at": [1, 5], "end_at": [2, 3]}, index=pd.Index([0, 0]))
+
+    with pytest.raises(ValidationError) as exc_info:
+        DataFrame[EventSchema](df)
+
+    assert exc_info.value.invalid_samples == [(0, {"start_at": 5, "end_at": 3})]
