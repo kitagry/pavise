@@ -267,11 +267,41 @@ def _extract_type_and_validators(
     return annotation, validators, is_optional, is_not_required
 
 
+def _invalid_value_mask(
+    series: pl.Series, is_valid: Callable[[Any], bool], null_valid: bool
+) -> pl.Series:
+    """
+    Return a boolean mask of values rejected by ``is_valid``, calling it as rarely as possible.
+
+    ``is_valid`` must depend only on the value's type for non-null values (an isinstance check),
+    which holds for every TYPE_CHECKERS value checker.
+    """
+    if series.dtype == pl.Object:
+        cache: dict[type, bool] = {}
+
+        def is_invalid(value: Any) -> bool:
+            if value is None:
+                return not null_valid
+            value_type = type(value)
+            if value_type not in cache:
+                cache[value_type] = not is_valid(value)
+            return cache[value_type]
+
+        return series.map_elements(is_invalid, return_dtype=pl.Boolean, skip_nulls=False)
+
+    # Non-null values of any non-Object dtype all share one Python type, so a single element
+    # decides for the whole column.
+    non_null = series.drop_nulls()
+    invalid_non_null = non_null.len() > 0 and not is_valid(non_null[0])
+    is_null = series.is_null()
+    return (is_null & (not null_valid)) | (~is_null & invalid_non_null)
+
+
 def _raise_type_error_with_samples(
     df: pl.DataFrame, col_name: str, checker: TypeChecker, expected_type: type, actual_dtype: Any
 ) -> None:
     """Raise TypeError with sample invalid values."""
-    invalid_mask = df[col_name].map_elements(lambda v: not checker.value(v))
+    invalid_mask = _invalid_value_mask(df[col_name], checker.value, null_valid=True)
     invalid_df = df[col_name].to_frame().with_row_index("__row__").filter(invalid_mask)
     samples = [
         (row["__row__"], row[col_name])
@@ -342,13 +372,10 @@ def _check_column_type(df: pl.DataFrame, col_name: str, expected_type: type) -> 
                 raise ValidationError(f"unsupported type: {union_type}", column_name=col_name)
 
         # Check if each value matches at least one of the union types
-        def check_union_value(value: Any) -> bool:
-            if value is None:
-                return is_optional
-            return any(TYPE_CHECKERS[t].value(value) for t in union_types)
-
-        invalid_mask = df[col_name].map_elements(
-            lambda v: not check_union_value(v), return_dtype=pl.Boolean, skip_nulls=False
+        invalid_mask = _invalid_value_mask(
+            df[col_name],
+            lambda value: any(TYPE_CHECKERS[t].value(value) for t in union_types),
+            null_valid=is_optional,
         )
         if invalid_mask.any():
             invalid_df = df[col_name].to_frame().with_row_index("__row__").filter(invalid_mask)
