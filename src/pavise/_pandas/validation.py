@@ -19,15 +19,13 @@ from typing import (
 import numpy as np
 import pandas as pd
 
+from pavise._pandas.validator_impl import MAX_SAMPLE_SIZE, apply_validator, get_invalid_samples
 from pavise.checks import DataFrameCheck, get_dataframe_checks
 from pavise.exceptions import ValidationError
 from pavise.types import NotRequiredColumn
 
 # Special column name for index validation
 INDEX_COLUMN_NAME = "__index__"
-
-# Maximum number of invalid sample values to show in error messages
-MAX_SAMPLE_SIZE = 5
 
 
 @dataclass
@@ -96,11 +94,6 @@ def _invalid_value_mask(
         first = int(np.argmax(nonnull))
         valid[nonnull] = bool(series.iloc[first : first + 1].apply(is_valid).iloc[0])
     return pd.Series(~valid, index=series.index)
-
-
-def _collect_samples(invalid: pd.Series) -> list[tuple[Any, Any]]:
-    """Return up to MAX_SAMPLE_SIZE (index, value) pairs from the invalid values."""
-    return [(idx, invalid[idx]) for idx in invalid.head(MAX_SAMPLE_SIZE).index]
 
 
 TYPE_CHECKERS = {
@@ -224,7 +217,9 @@ def _run_dataframe_check(df: pd.DataFrame, check: DataFrameCheck, schema_cols: l
     if total_invalid == 0:
         return
 
-    invalid_rows = df.loc[invalid_mask, schema_cols].head(MAX_SAMPLE_SIZE)
+    # Slice positions first so only the sampled rows are copied, not every invalid row
+    positions = np.flatnonzero(invalid_mask.to_numpy(dtype=bool))[:MAX_SAMPLE_SIZE]
+    invalid_rows = df.iloc[positions][schema_cols]
     samples: list[tuple[Any, ...]] = list(zip(invalid_rows.index, invalid_rows.to_dict("records")))
     raise ValidationError.new_with_samples(None, base_message, samples, total_invalid)
 
@@ -333,8 +328,6 @@ def _extract_index_name_type_and_validators(
 
 def _check_index_type(df: pd.DataFrame, expected_type: type) -> None:
     """Check if index has the expected type and name."""
-    from pavise._pandas.validator_impl import apply_validator
-
     base_type, index_name, validators, is_optional = _extract_index_name_type_and_validators(
         expected_type
     )
@@ -368,8 +361,6 @@ def _check_multiindex_type(
     is_optional: bool,
 ) -> None:
     """Check if MultiIndex has the expected types and names."""
-    from pavise._pandas.validator_impl import apply_validator
-
     level_types = get_args(expected_types)
 
     if not isinstance(df.index, pd.MultiIndex):
@@ -415,8 +406,6 @@ def _check_column_exists(df: pd.DataFrame, col_name: str) -> None:
 
 def _check_column_type(df: pd.DataFrame, col_name: str, expected_type: type) -> None:
     """Check if a column has the expected type and apply validators."""
-    from pavise._pandas.validator_impl import apply_validator
-
     base_type, validators, is_optional, _is_not_required = _extract_type_and_validators(
         expected_type
     )
@@ -439,12 +428,12 @@ def _check_column_type(df: pd.DataFrame, col_name: str, expected_type: type) -> 
         allowed_values = get_args(base_type)
         invalid_mask = ~col_series.isin(allowed_values)
         if invalid_mask.any():
-            invalid_df: pd.Series = col_series[invalid_mask]  # type: ignore[assignment]
+            samples, total_invalid = get_invalid_samples(col_series, invalid_mask)
             raise ValidationError.new_with_samples(
                 col_name,
                 f"expected one of {allowed_values}, got invalid values",
-                _collect_samples(invalid_df),
-                len(invalid_df),
+                samples,
+                total_invalid,
                 repr,
             )
         for validator in validators:
@@ -466,13 +455,13 @@ def _check_column_type(df: pd.DataFrame, col_name: str, expected_type: type) -> 
             null_valid=is_optional,
         )
         if bool(invalid_mask.any()):
-            invalid_df = col_series[invalid_mask]  # type: ignore[assignment]
+            samples, total_invalid = get_invalid_samples(col_series, invalid_mask)
             union_type_names = " | ".join(t.__name__ for t in union_types)
             raise ValidationError.new_with_samples(
                 col_name,
                 f"expected {union_type_names}, got {col_series.dtype}",
-                _collect_samples(invalid_df),
-                len(invalid_df),
+                samples,
+                total_invalid,
                 repr,
             )
 
@@ -490,12 +479,12 @@ def _check_column_type(df: pd.DataFrame, col_name: str, expected_type: type) -> 
         raise ValidationError("is non-optional but contains null values", column_name=col_name)
     if not checker.dtype(col_series):
         invalid_mask = _invalid_value_mask(col_series, checker.value, null_valid=True)
-        invalid_df = col_series[invalid_mask]  # type: ignore[assignment]
+        samples, total_invalid = get_invalid_samples(col_series, invalid_mask)
         raise ValidationError.new_with_samples(
             col_name,
             f"expected {base_type.__name__}, got {col_dtype}",
-            _collect_samples(invalid_df),
-            len(invalid_df),
+            samples,
+            total_invalid,
             repr,
         )
 

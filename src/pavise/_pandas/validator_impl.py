@@ -3,6 +3,7 @@
 import operator
 from typing import Any
 
+import numpy as np
 import pandas as pd
 
 from pavise.exceptions import ValidationError
@@ -52,7 +53,7 @@ def apply_validator(series: pd.Series, validator: Any, col_name: str) -> None:
         raise ValidationError(f"Unknown validator type: {type(validator)}")
 
 
-def _get_invalid_samples(
+def get_invalid_samples(
     series: pd.Series, invalid_mask: pd.Series
 ) -> tuple[list[tuple[Any, Any]], int]:
     """
@@ -65,10 +66,13 @@ def _get_invalid_samples(
     Returns:
         Tuple of (samples, total_invalid) where samples is a list of (index, value) tuples
     """
-    invalid_indices = series.index[invalid_mask][:MAX_SAMPLE_SIZE].tolist()  # type: ignore[index]
-    samples: list[tuple[Any, Any]] = [(idx, series.loc[idx]) for idx in invalid_indices]
-    total_invalid = invalid_mask.sum()
-    return samples, total_invalid
+    # Nullable dtypes (Int64, string) yield NA where the comparison is undefined; NA is not
+    # a violation here, since nulls are handled by the optional check.
+    positions = np.flatnonzero(invalid_mask.to_numpy(dtype=bool, na_value=False))
+    # Select by position: a label lookup returns every row sharing a duplicated index label
+    invalid = series.iloc[positions[:MAX_SAMPLE_SIZE]]
+    samples = [(invalid.index[pos], invalid.iloc[pos]) for pos in range(len(invalid))]
+    return samples, len(positions)
 
 
 def _validate_range(series: pd.Series, validator: Range, col_name: str) -> None:
@@ -77,7 +81,7 @@ def _validate_range(series: pd.Series, validator: Range, col_name: str) -> None:
     if not invalid_mask.any():
         return
 
-    samples, total_invalid = _get_invalid_samples(series, invalid_mask)
+    samples, total_invalid = get_invalid_samples(series, invalid_mask)
     raise ValidationError.new_with_samples(
         col_name,
         f"values must be in range [{validator.min}, {validator.max}]",
@@ -96,7 +100,7 @@ def _validate_comparison(series: pd.Series, validator: Ge | Gt | Le | Lt, col_na
     if not invalid_mask.any():
         return
 
-    samples, total_invalid = _get_invalid_samples(series, invalid_mask)
+    samples, total_invalid = get_invalid_samples(series, invalid_mask)
     raise ValidationError.new_with_samples(
         col_name,
         f"values must be {symbol} {validator.value}",
@@ -112,7 +116,7 @@ def _validate_unique(series: pd.Series, col_name: str) -> None:
     if not duplicated_mask.any():
         return
 
-    samples, total_invalid = _get_invalid_samples(series, duplicated_mask)
+    samples, total_invalid = get_invalid_samples(series, duplicated_mask)
     raise ValidationError.new_with_samples(
         col_name,
         "contains duplicate values",
@@ -128,7 +132,7 @@ def _validate_in(series: pd.Series, validator: In, col_name: str) -> None:
     if not invalid_mask.any():
         return
 
-    samples, total_invalid = _get_invalid_samples(series, invalid_mask)
+    samples, total_invalid = get_invalid_samples(series, invalid_mask)
     raise ValidationError.new_with_samples(
         col_name, "contains values not in allowed values", samples, total_invalid
     )
@@ -142,7 +146,7 @@ def _validate_regex(series: pd.Series, validator: Regex, col_name: str) -> None:
     if not invalid_mask.any():
         return
 
-    samples, total_invalid = _get_invalid_samples(series, invalid_mask)
+    samples, total_invalid = get_invalid_samples(series, invalid_mask)
     raise ValidationError.new_with_samples(
         col_name, "contains values that don't match the pattern", samples, total_invalid
     )
@@ -154,7 +158,7 @@ def _validate_minlen(series: pd.Series, validator: MinLen, col_name: str) -> Non
     if not invalid_mask.any():
         return
 
-    samples, total_invalid = _get_invalid_samples(series, invalid_mask)
+    samples, total_invalid = get_invalid_samples(series, invalid_mask)
     raise ValidationError.new_with_samples(
         col_name,
         "contains strings shorter than minimum length",
@@ -170,7 +174,7 @@ def _validate_maxlen(series: pd.Series, validator: MaxLen, col_name: str) -> Non
     if not invalid_mask.any():
         return
 
-    samples, total_invalid = _get_invalid_samples(series, invalid_mask)
+    samples, total_invalid = get_invalid_samples(series, invalid_mask)
     raise ValidationError.new_with_samples(
         col_name,
         "contains strings longer than maximum length",
@@ -186,5 +190,5 @@ def _validate_custom(series: pd.Series, validator: Custom, col_name: str) -> Non
     if not bool(invalid_mask.any()):
         return
 
-    samples, total_invalid = _get_invalid_samples(series, invalid_mask)
+    samples, total_invalid = get_invalid_samples(series, invalid_mask)
     raise ValidationError.new_with_samples(col_name, validator.message, samples, total_invalid)
