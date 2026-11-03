@@ -42,7 +42,10 @@ def type_check_str(df: pd.Series | pd.Index) -> bool:
     if pd.api.types.is_string_dtype(df):
         return True
     elif df.dtype == object:
-        return bool(df.apply(lambda x: isinstance(x, str) or pd.isna(x)).all())
+        # infer_dtype scans in C; only fall back to the exact per-element check when it is unsure.
+        if pd.api.types.infer_dtype(df, skipna=True) in ("string", "empty"):
+            return True
+        return not _invalid_value_mask(df, lambda x: isinstance(x, str), null_valid=True).any()
     return False
 
 
@@ -51,8 +54,52 @@ def type_check_date(df: pd.Series | pd.Index) -> bool:
     if pd.api.types.is_datetime64_any_dtype(df):
         return True
     elif df.dtype == object:
-        return bool(df.apply(lambda x: isinstance(x, date) or pd.isna(x)).all())
+        if pd.api.types.infer_dtype(df, skipna=True) in ("date", "datetime", "empty"):
+            return True
+        return not _invalid_value_mask(df, lambda x: isinstance(x, date), null_valid=True).any()
     return False
+
+
+def _invalid_value_mask(
+    series: pd.Series, is_valid: Callable[[Any], bool], null_valid: bool
+) -> pd.Series:
+    """
+    Return a boolean mask of values rejected by ``is_valid``, calling it as rarely as possible.
+
+    ``is_valid`` must depend only on the value's type for non-null values (an isinstance check),
+    which holds for every TYPE_CHECKERS value checker.
+    """
+    if isinstance(series.dtype, pd.SparseDtype):
+        # SparseArray.map rejects mappers that send a stored value to the fill value's result,
+        # and Sparse[object] may mix Python types, so check the dense values instead.
+        series = series.sparse.to_dense()
+    na = series.isna().to_numpy(dtype=bool)
+    valid = np.full(len(series), null_valid, dtype=bool)
+    nonnull = ~na
+    if not nonnull.any():
+        return pd.Series(~valid, index=series.index)
+
+    if series.dtype == object or isinstance(series.dtype, pd.CategoricalDtype):
+        cache: dict[type, bool] = {}
+
+        def check(value: Any) -> bool:
+            value_type = type(value)
+            if value_type not in cache:
+                cache[value_type] = bool(is_valid(value))
+            return cache[value_type]
+
+        valid[nonnull] = series.loc[nonnull].apply(check).to_numpy(dtype=bool)
+    else:
+        # Non-null values of any other dtype all share one Python type, so a single element
+        # decides for the whole column. Slice + apply to box the value exactly as apply would.
+        first = int(np.argmax(nonnull))
+        valid[nonnull] = bool(series.iloc[first : first + 1].apply(is_valid).iloc[0])
+    return pd.Series(~valid, index=series.index)
+
+
+def _collect_samples(invalid: pd.Series) -> list[tuple[Any, Any]]:
+    """Return up to MAX_SAMPLE_SIZE (index, value) pairs from the invalid values."""
+    return [(idx, invalid[idx]) for idx in invalid.head(MAX_SAMPLE_SIZE).index]
 
 
 TYPE_CHECKERS = {
@@ -349,12 +396,10 @@ def _check_column_type(df: pd.DataFrame, col_name: str, expected_type: type) -> 
         invalid_mask = ~col_series.isin(allowed_values)
         if invalid_mask.any():
             invalid_df: pd.Series = col_series[invalid_mask]  # type: ignore[assignment]
-            samples: list[tuple[Any, Any]] = [(idx, invalid_df[idx]) for idx in invalid_df.index]
-            samples = samples[:MAX_SAMPLE_SIZE]
             raise ValidationError.new_with_samples(
                 col_name,
                 f"expected one of {allowed_values}, got invalid values",
-                samples,
+                _collect_samples(invalid_df),
                 len(invalid_df),
                 repr,
             )
@@ -371,21 +416,18 @@ def _check_column_type(df: pd.DataFrame, col_name: str, expected_type: type) -> 
                 raise ValidationError(f"unsupported type: {union_type}", column_name=col_name)
 
         # Check if each value matches at least one of the union types
-        def check_union_value(value: Any) -> bool:
-            if pd.isna(value):
-                return is_optional
-            return any(TYPE_CHECKERS[t].value(value) for t in union_types)
-
-        invalid_mask = ~col_series.apply(check_union_value)
+        invalid_mask = _invalid_value_mask(
+            col_series,
+            lambda value: any(TYPE_CHECKERS[t].value(value) for t in union_types),
+            null_valid=is_optional,
+        )
         if bool(invalid_mask.any()):
             invalid_df = col_series[invalid_mask]  # type: ignore[assignment]
-            samples = [(idx, invalid_df[idx]) for idx in invalid_df.index]
-            samples = samples[:MAX_SAMPLE_SIZE]
             union_type_names = " | ".join(t.__name__ for t in union_types)
             raise ValidationError.new_with_samples(
                 col_name,
                 f"expected {union_type_names}, got {col_series.dtype}",
-                samples,
+                _collect_samples(invalid_df),
                 len(invalid_df),
                 repr,
             )
@@ -403,15 +445,13 @@ def _check_column_type(df: pd.DataFrame, col_name: str, expected_type: type) -> 
     if not is_optional and col_series.isna().any():
         raise ValidationError("is non-optional but contains null values", column_name=col_name)
     if not checker.dtype(col_series):
-        invalid_mask = col_series.apply(checker.value)
-        invalid_df = col_series[~invalid_mask]  # type: ignore[assignment]
-        samples = [(idx, invalid_df[idx]) for idx in invalid_df.index]
-        samples = samples[:MAX_SAMPLE_SIZE]
+        invalid_mask = _invalid_value_mask(col_series, checker.value, null_valid=True)
+        invalid_df = col_series[invalid_mask]  # type: ignore[assignment]
         raise ValidationError.new_with_samples(
             col_name,
             f"expected {base_type.__name__}, got {col_dtype}",
-            samples,
-            len(col_series[~invalid_mask]),  # type: ignore[arg-type]
+            _collect_samples(invalid_df),
+            len(invalid_df),
             repr,
         )
 
