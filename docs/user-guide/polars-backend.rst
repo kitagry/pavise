@@ -93,7 +93,7 @@ For non-nullable columns, don't use Optional:
        value: int  # No nulls allowed
 
    df = pl.DataFrame({"value": [1, 2, None]})
-   validated_df = DataFrame[Schema](df)  # Raises ValueError
+   validated_df = DataFrame[Schema](df)  # Raises ValidationError
 
 Performance Considerations
 --------------------------

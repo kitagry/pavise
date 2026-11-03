@@ -29,7 +29,7 @@ If the DataFrame contains extra columns, you'll get a clear error:
 
 .. code-block:: text
 
-   ValueError: Strict mode: unexpected columns ['age', 'email', 'address']
+   ValidationError: Strict mode: unexpected columns ['address', 'age', 'email']
 
 Use Cases
 ---------
