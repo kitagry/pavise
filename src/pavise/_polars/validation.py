@@ -51,8 +51,10 @@ def _is_datetime_dtype(dtype: Any) -> bool:
 
 TYPE_CHECKERS = {
     int: TypeChecker(
-        dtype=lambda dtype: dtype
-        in (pl.Int8, pl.Int16, pl.Int32, pl.Int64, pl.UInt8, pl.UInt16, pl.UInt32, pl.UInt64),
+        dtype=lambda dtype: (
+            dtype
+            in (pl.Int8, pl.Int16, pl.Int32, pl.Int64, pl.UInt8, pl.UInt16, pl.UInt32, pl.UInt64)
+        ),
         value=lambda x: isinstance(x, int) and not isinstance(x, bool),
     ),
     float: TypeChecker(
