@@ -28,9 +28,9 @@ Error message example:
 
 .. code-block:: text
 
-   ValueError: Column 'age': values must be in range [0, 150]
+   ValidationError: Column 'age': values must be in range [0, 150]
 
-   Sample invalid values (showing first 3 of 5):
+   Sample invalid values (showing first 3 of 3):
      Row 1: 200
      Row 3: -5
      Row 5: 300
@@ -88,11 +88,13 @@ Error message example:
 
 .. code-block:: text
 
-   ValueError: Column 'user_id': contains duplicate values
+   ValidationError: Column 'user_id': contains duplicate values
 
-   Sample duplicate values (showing first 2):
-     Value 2 at rows: [1, 3]
-     Value 5 at rows: [2, 4]
+   Sample invalid values (showing first 4 of 4):
+     Row 1: np.int64(2)
+     Row 2: np.int64(5)
+     Row 3: np.int64(2)
+     Row 4: np.int64(5)
 
 In
 ~~
@@ -111,11 +113,12 @@ Error message example:
 
 .. code-block:: text
 
-   ValueError: Column 'status': contains values not in allowed values
+   ValidationError: Column 'status': contains values not in allowed values
 
-   Sample invalid values (showing first 2 of 3):
+   Sample invalid values (showing first 3 of 3):
      Row 1: 'invalid'
      Row 3: 'bad'
+     Row 4: 'nope'
 
 Regex
 ~~~~~
@@ -134,9 +137,9 @@ Error message example:
 
 .. code-block:: text
 
-   ValueError: Column 'email': contains values that don't match the pattern
+   ValidationError: Column 'email': contains values that don't match the pattern
 
-   Sample invalid values (showing first 2 of 4):
+   Sample invalid values (showing first 2 of 2):
      Row 1: 'invalid'
      Row 3: 'bad@'
 
@@ -157,9 +160,9 @@ Error message example:
 
 .. code-block:: text
 
-   ValueError: Column 'username': contains strings shorter than minimum length
+   ValidationError: Column 'username': contains strings shorter than minimum length
 
-   Sample invalid values (showing first 2 of 3):
+   Sample invalid values (showing first 2 of 2):
      Row 0: 'ab' (length: 2)
      Row 2: 'x' (length: 1)
 
@@ -186,12 +189,12 @@ Error message example:
 
 .. code-block:: text
 
-   ValueError: Column 'amount': must be positive
+   ValidationError: Column 'amount': must be positive
 
-   Sample invalid values (showing first 3 of 5):
-     Row 1: -100
-     Row 3: 0
-     Row 7: -50
+   Sample invalid values (showing first 3 of 3):
+     Row 1: np.int64(-100)
+     Row 3: np.int64(0)
+     Row 7: np.int64(-50)
 
 Combining Multiple Validators
 ------------------------------

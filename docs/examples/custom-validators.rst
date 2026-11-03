@@ -11,6 +11,7 @@ Validate business-specific constraints:
 .. code-block:: python
 
    from typing import Protocol, Annotated
+   from pavise.exceptions import ValidationError
    from pavise.pandas import DataFrame
    from pavise.validators import Custom, Range
    import pandas as pd
@@ -37,7 +38,7 @@ Validate business-specific constraints:
 
    try:
        validated_df = DataFrame[FinancialDataSchema](df)
-   except ValueError as e:
+   except ValidationError as e:
        print(f"Validation failed: {e}")
 
 Domain-Specific Validators
