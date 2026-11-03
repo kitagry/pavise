@@ -10,4 +10,5 @@ This section contains the complete API documentation for Pavise, automatically g
    polars
    types
    validators
+   checks
    exceptions

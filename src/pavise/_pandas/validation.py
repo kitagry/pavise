@@ -19,6 +19,7 @@ from typing import (
 import numpy as np
 import pandas as pd
 
+from pavise.checks import DataFrameCheck, get_dataframe_checks
 from pavise.exceptions import ValidationError
 from pavise.types import NotRequiredColumn
 
@@ -183,6 +184,38 @@ def validate_dataframe(df: pd.DataFrame, schema: type, strict: bool = False) -> 
         extra_cols = df_cols - schema_cols
         if extra_cols:
             raise ValidationError(f"Strict mode: unexpected columns {sorted(extra_cols)}")
+
+    schema_cols = [c for c in expected_cols if c != INDEX_COLUMN_NAME and c in df.columns]
+    for check in get_dataframe_checks(schema):
+        _run_dataframe_check(df, check, schema_cols)
+
+
+def _run_dataframe_check(df: pd.DataFrame, check: DataFrameCheck, schema_cols: list[str]) -> None:
+    """Run a DataFrame-level check and raise with sample violating rows if it fails."""
+    result = check.func(df)
+    base_message = f"DataFrame check '{check.name}' failed"
+
+    if isinstance(result, (bool, np.bool_)):
+        if not result:
+            raise ValidationError(base_message)
+        return
+
+    if not isinstance(result, pd.Series) or not pd.api.types.is_bool_dtype(result):
+        raise ValidationError(
+            f"DataFrame check '{check.name}' must return a boolean Series or bool, "
+            f"got {type(result).__name__}"
+        )
+
+    # Null means the check could not be evaluated for the row, which counts as passing.
+    invalid_mask = ~result.fillna(True).astype(bool)
+    if not invalid_mask.any():
+        return
+
+    invalid_rows = df.loc[invalid_mask, schema_cols].head(MAX_SAMPLE_SIZE)
+    samples: list[tuple[Any, ...]] = list(zip(invalid_rows.index, invalid_rows.to_dict("records")))
+    raise ValidationError.new_with_samples(
+        None, base_message, samples, int(invalid_mask.sum()), repr
+    )
 
 
 def _extract_type_and_validators(

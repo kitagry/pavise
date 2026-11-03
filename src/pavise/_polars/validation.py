@@ -23,6 +23,7 @@ try:
 except ImportError:
     raise ImportError("Polars is not installed. Install it with: pip install pavise[polars]")
 
+from pavise.checks import DataFrameCheck, get_dataframe_checks
 from pavise.exceptions import ValidationError
 
 # Maximum number of invalid sample values to show in error messages
@@ -125,6 +126,44 @@ def validate_dataframe(df: pl.DataFrame, schema: type, strict: bool = False) -> 
         extra_cols = df_cols - schema_cols
         if extra_cols:
             raise ValidationError(f"Strict mode: unexpected columns {sorted(extra_cols)}")
+
+    schema_cols = [c for c in expected_cols if c in df.columns]
+    for check in get_dataframe_checks(schema):
+        _run_dataframe_check(df, check, schema_cols)
+
+
+def _run_dataframe_check(df: pl.DataFrame, check: DataFrameCheck, schema_cols: list[str]) -> None:
+    """Run a DataFrame-level check and raise with sample violating rows if it fails."""
+    result = check.func(df)
+    base_message = f"DataFrame check '{check.name}' failed"
+
+    if isinstance(result, bool):
+        if not result:
+            raise ValidationError(base_message)
+        return
+
+    if isinstance(result, pl.Expr):
+        result = df.select(result).to_series()
+
+    if not isinstance(result, pl.Series) or result.dtype != pl.Boolean:
+        raise ValidationError(
+            f"DataFrame check '{check.name}' must return a boolean Series, Expr or bool, "
+            f"got {type(result).__name__}"
+        )
+
+    # Null means the check could not be evaluated for the row, which counts as passing.
+    invalid_mask = ~result.fill_null(True)
+    total_invalid = int(invalid_mask.sum())
+    if total_invalid == 0:
+        return
+
+    invalid_rows = (
+        df.select(schema_cols).with_row_index("__row__").filter(invalid_mask).head(MAX_SAMPLE_SIZE)
+    )
+    samples: list[tuple[Any, ...]] = [
+        (row.pop("__row__"), row) for row in invalid_rows.iter_rows(named=True)
+    ]
+    raise ValidationError.new_with_samples(None, base_message, samples, total_invalid, repr)
 
 
 def validate_lazyframe_schema(lf: pl.LazyFrame, schema: type, strict: bool = False) -> None:

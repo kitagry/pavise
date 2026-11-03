@@ -42,7 +42,7 @@ class ValidationError(PaviseError):
     @classmethod
     def new_with_samples(
         cls,
-        col_name: str,
+        col_name: str | None,
         base_message: str,
         samples: list[tuple[Any, ...]],
         total_invalid: int,
@@ -51,7 +51,7 @@ class ValidationError(PaviseError):
         """
         Create a ValidationError with a formatted message including sample invalid values.
         Args:
-            col_name: Column name
+            col_name: Column name, or None for DataFrame-level checks
             base_message: Base error message (e.g., "values must be in range [0, 150]")
             samples: List of (index, value) tuples
             total_invalid: Total number of invalid values
