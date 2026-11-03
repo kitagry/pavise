@@ -46,17 +46,21 @@ from typing import Protocol
 import pandas as pd
 from pavise.pandas import DataFrame
 
+
 class UserSchema(Protocol):
     name: str
     age: int
 
+
 # Runtime validation when creating DataFrame[Schema]
-raw_df = pd.DataFrame({'name': ['Alice', 'Bob'], 'age': [30, 17]})
+raw_df = pd.DataFrame({"name": ["Alice", "Bob"], "age": [30, 17]})
 validated_df = DataFrame[UserSchema](raw_df)  # Validates column types at runtime
+
 
 # Type hints work with static type checkers (mypy, pyright, etc.)
 def process_users(df: DataFrame[UserSchema]) -> DataFrame[UserSchema]:
-    return df[df['age'] >= 18]
+    return df[df["age"] >= 18]
+
 
 result = process_users(validated_df)
 ```
@@ -68,17 +72,21 @@ from typing import Protocol
 import polars as pl
 from pavise.polars import DataFrame
 
+
 class UserSchema(Protocol):
     name: str
     age: int
 
+
 # Runtime validation when creating DataFrame[Schema]
-raw_df = pl.DataFrame({'name': ['Alice', 'Bob'], 'age': [30, 17]})
+raw_df = pl.DataFrame({"name": ["Alice", "Bob"], "age": [30, 17]})
 validated_df = DataFrame[UserSchema](raw_df)  # Validates column types at runtime
+
 
 # Type hints work with static type checkers (mypy, pyright, etc.)
 def process_users(df: DataFrame[UserSchema]) -> DataFrame[UserSchema]:
-    return df.filter(df['age'] >= 18)
+    return df.filter(df["age"] >= 18)
+
 
 result = process_users(validated_df)
 ```
@@ -90,21 +98,24 @@ from typing import Protocol
 import pandas as pd
 from pavise.pandas import DataFrame
 
+
 class UserSchema(Protocol):
     name: str
+
 
 class UserWithEmailSchema(Protocol):
     name: str
     email: str
 
+
 def process_user(df: DataFrame[UserSchema]) -> None:
-    print(df['name'])
+    print(df["name"])
+
 
 # This works! UserWithEmailSchema has all required columns of UserSchema
-df = DataFrame[UserWithEmailSchema](pd.DataFrame({
-    'name': ['Alice'],
-    'email': ['alice@example.com']
-}))
+df = DataFrame[UserWithEmailSchema](
+    pd.DataFrame({"name": ["Alice"], "email": ["alice@example.com"]})
+)
 process_user(df)  # OK - covariant type parameter
 ```
 
@@ -118,25 +129,27 @@ import pandas as pd
 from pavise.pandas import DataFrame
 from pavise.validators import Range, Regex
 
+
 class UserSchema(Protocol):
     name: str
     age: Annotated[int, Range(0, 150)]
-    email: Annotated[str, Regex(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$')]
+    email: Annotated[str, Regex(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$")]
+
 
 # Valid data passes validation
-df = pd.DataFrame({
-    'name': ['Alice', 'Bob'],
-    'age': [25, 30],
-    'email': ['alice@example.com', 'bob@example.com']
-})
+df = pd.DataFrame(
+    {"name": ["Alice", "Bob"], "age": [25, 30], "email": ["alice@example.com", "bob@example.com"]}
+)
 validated_df = DataFrame[UserSchema](df)  # OK
 
 # Invalid data raises ValidationError
-invalid_df = pd.DataFrame({
-    'name': ['Charlie'],
-    'age': [200],  # Exceeds maximum age
-    'email': ['invalid-email']  # Invalid email format
-})
+invalid_df = pd.DataFrame(
+    {
+        "name": ["Charlie"],
+        "age": [200],  # Exceeds maximum age
+        "email": ["invalid-email"],  # Invalid email format
+    }
+)
 DataFrame[UserSchema](invalid_df)  # ValidationError
 ```
 
@@ -158,6 +171,7 @@ Use `Ge` / `Gt` / `Le` / `Lt` for one-sided bounds instead of `Range(0, float("i
 ```python
 from pavise.validators import Ge, Gt
 
+
 class OrderSchema(Protocol):
     price: Annotated[float, Ge(0)]
     quantity: Annotated[int, Gt(0)]
@@ -174,10 +188,12 @@ import pandas as pd
 from pavise.checks import dataframe_check
 from pavise.pandas import DataFrame
 
+
 @dataframe_check(lambda df: df["start_at"] < df["end_at"], name="start_before_end")
 class EventSchema(Protocol):
     start_at: datetime
     end_at: datetime
+
 
 DataFrame[EventSchema](df)
 # ValidationError: DataFrame check 'start_before_end' failed
@@ -197,27 +213,31 @@ from typing import Protocol, Union
 import pandas as pd
 from pavise.pandas import DataFrame
 
+
 class MixedSchema(Protocol):
     code: Union[int, str]  # Can be int or str
     value: float
 
+
 # Accept int values
-df1 = pd.DataFrame({'code': [1, 2, 3], 'value': [1.0, 2.0, 3.0]})
+df1 = pd.DataFrame({"code": [1, 2, 3], "value": [1.0, 2.0, 3.0]})
 validated1 = DataFrame[MixedSchema](df1)  # OK
 
 # Accept str values
-df2 = pd.DataFrame({'code': ['A', 'B', 'C'], 'value': [1.0, 2.0, 3.0]})
+df2 = pd.DataFrame({"code": ["A", "B", "C"], "value": [1.0, 2.0, 3.0]})
 validated2 = DataFrame[MixedSchema](df2)  # OK
 
 # Accept mixed int/str values
-df3 = pd.DataFrame({'code': [1, 'B', 3, 'D'], 'value': [1.0, 2.0, 3.0, 4.0]})
+df3 = pd.DataFrame({"code": [1, "B", 3, "D"], "value": [1.0, 2.0, 3.0, 4.0]})
 validated3 = DataFrame[MixedSchema](df3)  # OK
+
 
 # Union with None for nullable union types
 class NullableUnionSchema(Protocol):
     code: Union[int, str, None]  # Can be int, str, or None
 
-df4 = pd.DataFrame({'code': [1, 'B', None, 4]})
+
+df4 = pd.DataFrame({"code": [1, "B", None, 4]})
 validated4 = DataFrame[NullableUnionSchema](df4)  # OK
 ```
 
@@ -228,15 +248,19 @@ from typing import Protocol
 import pandas as pd
 from pavise.pandas import DataFrame
 
+
 class SimpleSchema(Protocol):
     a: int
 
+
 # Extra columns are ignored during validation
-df = pd.DataFrame({
-    'a': [1, 2, 3],
-    'b': ['x', 'y', 'z'],  # Extra column - ignored
-    'c': [10.0, 20.0, 30.0]  # Extra column - ignored
-})
+df = pd.DataFrame(
+    {
+        "a": [1, 2, 3],
+        "b": ["x", "y", "z"],  # Extra column - ignored
+        "c": [10.0, 20.0, 30.0],  # Extra column - ignored
+    }
+)
 
 validated = DataFrame[SimpleSchema](df)  # OK
 ```
