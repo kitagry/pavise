@@ -49,6 +49,8 @@ A check function receives the backend's native DataFrame and returns one of:
   - polars: ``pl.Series`` of bools or a ``pl.Expr`` evaluating to bools
 
 - **A single bool**: for constraints on the whole DataFrame, such as an aggregate.
+  With polars, an ``Expr`` that aggregates to a single value (e.g.
+  ``pl.col("share").sum() == 100``) is treated the same way.
 
 .. code-block:: python
 
@@ -103,7 +105,10 @@ When Checks Run
 ---------------
 
 - After all column type checks, column validators and strict mode pass, so check
-  functions can rely on the declared columns and types.
+  functions can rely on the declared columns and types. ``NotRequiredColumn`` columns
+  may still be absent, so guard for them (e.g. ``"col" in df.columns``).
+- ``make_empty()`` also runs the checks, so whole-DataFrame checks that fail on an empty
+  DataFrame (such as ``sum() == 100``) make ``make_empty()`` raise.
 - Validation stops at the first failing check.
 - ``polars.LazyFrame[Schema](lf)`` only checks the schema at construction; DataFrame-level
   checks run on ``collect()``.

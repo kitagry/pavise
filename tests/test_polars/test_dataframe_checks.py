@@ -172,3 +172,53 @@ def test_lazyframe_runs_checks_on_collect():
 
     with pytest.raises(ValidationError, match="DataFrame check 'start_before_end' failed"):
         lf.collect()
+
+
+@dataframe_check(lambda df: pl.col("share").sum() == 100, name="shares_sum_to_100")
+class AggregateExprShareSchema(Protocol):
+    share: int
+
+
+def test_aggregate_expr_check_is_treated_as_single_bool():
+    df = pl.DataFrame({"share": [1, 2, 3]})
+
+    with pytest.raises(ValidationError) as exc_info:
+        DataFrame[AggregateExprShareSchema](df)
+
+    assert str(exc_info.value) == "DataFrame check 'shares_sum_to_100' failed"
+    assert exc_info.value.invalid_samples == []
+
+
+def test_aggregate_expr_check_passes_when_true():
+    df = pl.DataFrame({"share": [60, 40, 0]})
+
+    result = DataFrame[AggregateExprShareSchema](df)
+
+    assert result.height == 3
+
+
+@dataframe_check(lambda df: pl.col("a", "b") > 0, name="positive")
+class MultiColumnExprSchema(Protocol):
+    a: int
+    b: int
+
+
+def test_multi_column_expr_check_raises_validation_error():
+    df = pl.DataFrame({"a": [1], "b": [-1]})
+
+    with pytest.raises(ValidationError, match="single column, got 2 columns"):
+        DataFrame[MultiColumnExprSchema](df)
+
+
+@dataframe_check(lambda df: df["__row__"] > 0, name="positive_row")
+class RowNamedColumnSchema(Protocol):
+    __row__: int
+
+
+def test_row_check_works_with_column_named_like_internal_row_index():
+    df = pl.DataFrame({"__row__": [1, -1]})
+
+    with pytest.raises(ValidationError) as exc_info:
+        DataFrame[RowNamedColumnSchema](df)
+
+    assert exc_info.value.invalid_samples == [(1, {"__row__": -1})]

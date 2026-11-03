@@ -9,13 +9,12 @@ The actual evaluation is implemented in backend-specific modules:
 - _polars.validation for polars
 """
 
+import weakref
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, TypeVar
 
-T = TypeVar("T")
-
-_CHECKS_ATTR = "__pavise_checks__"
+T = TypeVar("T", bound=type)
 
 
 @dataclass
@@ -31,6 +30,11 @@ class DataFrameCheck:
     name: str
 
 
+# Kept outside the class namespace: on Python < 3.12 any class attribute set on a Protocol
+# becomes a protocol member, which would break isinstance() on runtime_checkable schemas.
+_CHECKS: "weakref.WeakKeyDictionary[type, list[DataFrameCheck]]" = weakref.WeakKeyDictionary()
+
+
 def dataframe_check(func: Callable[[Any], Any], *, name: str | None = None) -> Callable[[T], T]:
     """Attach a DataFrame-level check to a schema Protocol.
 
@@ -44,9 +48,9 @@ def dataframe_check(func: Callable[[Any], Any], *, name: str | None = None) -> C
     check = DataFrameCheck(func=func, name=name if name is not None else func.__name__)
 
     def decorator(schema: T) -> T:
-        own_checks: list[DataFrameCheck] = vars(schema).get(_CHECKS_ATTR, [])
+        own_checks = _CHECKS.setdefault(schema, [])
         # Decorators apply bottom-up; prepend so checks run in the order they are written.
-        setattr(schema, _CHECKS_ATTR, [check, *own_checks])
+        own_checks.insert(0, check)
         return schema
 
     return decorator
@@ -56,5 +60,5 @@ def get_dataframe_checks(schema: type) -> list[DataFrameCheck]:
     """Collect checks of a schema and its base Protocols, base classes first."""
     checks: list[DataFrameCheck] = []
     for cls in reversed(schema.__mro__):
-        checks.extend(vars(cls).get(_CHECKS_ATTR, []))
+        checks.extend(_CHECKS.get(cls, []))
     return checks

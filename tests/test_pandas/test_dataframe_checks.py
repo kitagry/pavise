@@ -204,3 +204,27 @@ def test_make_empty_passes_row_checks():
     result = DataFrame[EventSchema].make_empty()
 
     assert len(result) == 0
+
+
+@dataframe_check(lambda df: df.groupby("g")["a"].sum() > 0, name="group_sum_positive")
+class GroupedResultSchema(Protocol):
+    g: str
+    a: int
+
+
+def test_check_returning_unaligned_series_raises_validation_error():
+    df = pd.DataFrame({"g": ["x", "x", "y"], "a": [1, -5, 2]})
+
+    with pytest.raises(ValidationError, match="aligned with the DataFrame's index"):
+        DataFrame[GroupedResultSchema](df)
+
+
+@dataframe_check(lambda df: df.apply(lambda row: row["a"] > 0, axis=1), name="a_positive")
+class ApplyRowSchema(Protocol):
+    a: int
+
+
+def test_make_empty_passes_row_wise_apply_checks():
+    result = DataFrame[ApplyRowSchema].make_empty()
+
+    assert len(result) == 0

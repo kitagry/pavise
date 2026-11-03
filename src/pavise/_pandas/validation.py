@@ -176,16 +176,12 @@ def validate_dataframe(df: pd.DataFrame, schema: type, strict: bool = False) -> 
             _check_column_exists(df, col_name)
             _check_column_type(df, col_name, col_type)
 
+    schema_cols = [c for c in expected_cols if c != INDEX_COLUMN_NAME and c in df.columns]
     if strict:
-        schema_cols = set(expected_cols.keys())
-        if INDEX_COLUMN_NAME in schema_cols:
-            schema_cols.remove(INDEX_COLUMN_NAME)
-        df_cols = set(df.columns)
-        extra_cols = df_cols - schema_cols
+        extra_cols = set(df.columns) - set(schema_cols)
         if extra_cols:
             raise ValidationError(f"Strict mode: unexpected columns {sorted(extra_cols)}")
 
-    schema_cols = [c for c in expected_cols if c != INDEX_COLUMN_NAME and c in df.columns]
     for check in get_dataframe_checks(schema):
         _run_dataframe_check(df, check, schema_cols)
 
@@ -200,22 +196,37 @@ def _run_dataframe_check(df: pd.DataFrame, check: DataFrameCheck, schema_cols: l
             raise ValidationError(base_message)
         return
 
-    if not isinstance(result, pd.Series) or not pd.api.types.is_bool_dtype(result):
+    if not isinstance(result, pd.Series):
         raise ValidationError(
             f"DataFrame check '{check.name}' must return a boolean Series or bool, "
             f"got {type(result).__name__}"
         )
 
+    # Row-wise helpers like df.apply(..., axis=1) lose the bool dtype on an empty DataFrame.
+    if result.empty and df.empty:
+        return
+
+    if not pd.api.types.is_bool_dtype(result):
+        raise ValidationError(
+            f"DataFrame check '{check.name}' must return a boolean Series or bool, "
+            f"got Series of dtype {result.dtype}"
+        )
+
+    if not result.index.equals(df.index):
+        raise ValidationError(
+            f"DataFrame check '{check.name}' must return a Series aligned with the "
+            "DataFrame's index"
+        )
+
     # Null means the check could not be evaluated for the row, which counts as passing.
     invalid_mask = ~result.fillna(True).astype(bool)
-    if not invalid_mask.any():
+    total_invalid = int(invalid_mask.sum())
+    if total_invalid == 0:
         return
 
     invalid_rows = df.loc[invalid_mask, schema_cols].head(MAX_SAMPLE_SIZE)
     samples: list[tuple[Any, ...]] = list(zip(invalid_rows.index, invalid_rows.to_dict("records")))
-    raise ValidationError.new_with_samples(
-        None, base_message, samples, int(invalid_mask.sum()), repr
-    )
+    raise ValidationError.new_with_samples(None, base_message, samples, total_invalid)
 
 
 def _extract_type_and_validators(

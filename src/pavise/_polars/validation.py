@@ -120,14 +120,12 @@ def validate_dataframe(df: pl.DataFrame, schema: type, strict: bool = False) -> 
         _check_column_exists(df, col_name)
         _check_column_type(df, col_name, col_type)
 
+    schema_cols = [c for c in expected_cols if c in df.columns]
     if strict:
-        schema_cols = set(expected_cols.keys())
-        df_cols = set(df.columns)
-        extra_cols = df_cols - schema_cols
+        extra_cols = set(df.columns) - set(schema_cols)
         if extra_cols:
             raise ValidationError(f"Strict mode: unexpected columns {sorted(extra_cols)}")
 
-    schema_cols = [c for c in expected_cols if c in df.columns]
     for check in get_dataframe_checks(schema):
         _run_dataframe_check(df, check, schema_cols)
 
@@ -137,18 +135,39 @@ def _run_dataframe_check(df: pl.DataFrame, check: DataFrameCheck, schema_cols: l
     result = check.func(df)
     base_message = f"DataFrame check '{check.name}' failed"
 
+    if isinstance(result, pl.Expr):
+        evaluated = df.select(result)
+        if evaluated.width != 1:
+            raise ValidationError(
+                f"DataFrame check '{check.name}' must return an Expr producing a single column, "
+                f"got {evaluated.width} columns"
+            )
+        result = evaluated.to_series()
+        # Aggregations like pl.col("a").sum() == 100 evaluate to one value for the whole frame.
+        if result.len() == 1 and df.height != 1:
+            result = result.item()
+            if result is None:
+                return
+
     if isinstance(result, bool):
         if not result:
             raise ValidationError(base_message)
         return
 
-    if isinstance(result, pl.Expr):
-        result = df.select(result).to_series()
-
     if not isinstance(result, pl.Series) or result.dtype != pl.Boolean:
+        if isinstance(result, pl.Series):
+            type_name = f"Series of dtype {result.dtype}"
+        else:
+            type_name = type(result).__name__
         raise ValidationError(
             f"DataFrame check '{check.name}' must return a boolean Series, Expr or bool, "
-            f"got {type(result).__name__}"
+            f"got {type_name}"
+        )
+
+    if result.len() != df.height:
+        raise ValidationError(
+            f"DataFrame check '{check.name}' must return one value per row, "
+            f"got {result.len()} values for {df.height} rows"
         )
 
     # Null means the check could not be evaluated for the row, which counts as passing.
@@ -157,13 +176,10 @@ def _run_dataframe_check(df: pl.DataFrame, check: DataFrameCheck, schema_cols: l
     if total_invalid == 0:
         return
 
-    invalid_rows = (
-        df.select(schema_cols).with_row_index("__row__").filter(invalid_mask).head(MAX_SAMPLE_SIZE)
-    )
-    samples: list[tuple[Any, ...]] = [
-        (row.pop("__row__"), row) for row in invalid_rows.iter_rows(named=True)
-    ]
-    raise ValidationError.new_with_samples(None, base_message, samples, total_invalid, repr)
+    row_numbers = invalid_mask.arg_true().head(MAX_SAMPLE_SIZE).to_list()
+    invalid_rows = df.select(schema_cols).filter(invalid_mask).head(MAX_SAMPLE_SIZE)
+    samples: list[tuple[Any, ...]] = list(zip(row_numbers, invalid_rows.iter_rows(named=True)))
+    raise ValidationError.new_with_samples(None, base_message, samples, total_invalid)
 
 
 def validate_lazyframe_schema(lf: pl.LazyFrame, schema: type, strict: bool = False) -> None:
