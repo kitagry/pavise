@@ -363,3 +363,26 @@ def test_lazyframe_rejects_non_numeric_column_at_construction() -> None:
 
     with pytest.raises(ValidationError, match="v.*Ge requires a numeric or temporal column"):
         LazyFrame[Schema](pl.LazyFrame({"v": ["a"]}))
+
+
+@pytest.mark.parametrize(
+    ("pattern", "value", "valid"),
+    [
+        (r"^a|b$", "ab", False),
+        (r"^a|b$", "b", True),
+        (r"(?i)abc", "ABC", True),
+        (r"(?m)abc", "x\nabc", False),
+    ],
+)
+def test_regex_validator_matches_pandas_semantics(pattern: str, value: str, valid: bool):
+    """Anchored alternation and leading inline flags behave like re.fullmatch"""
+
+    class Schema(Protocol):
+        v: Annotated[str, Regex(pattern)]
+
+    df = pl.DataFrame({"v": [value]})
+    if valid:
+        DataFrame[Schema](df)
+    else:
+        with pytest.raises(ValidationError, match="v.*pattern"):
+            DataFrame[Schema](df)
