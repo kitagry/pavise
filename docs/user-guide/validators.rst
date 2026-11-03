@@ -135,8 +135,13 @@ Regex
 Validates that string values match a regular expression pattern.
 
 The **whole string** must match the pattern (equivalent to Python's ``re.fullmatch``),
-on both the pandas and polars backends. ``^`` and ``$`` anchors are therefore optional:
-``Regex(r'[a-z]+')`` rejects ``'abc123'``.
+on both the pandas and polars backends, including pyarrow-backed pandas string columns.
+``^`` and ``$`` anchors are therefore optional: ``Regex(r'[a-z]+')`` rejects ``'abc123'``.
+
+The regex syntax follows the engine that runs it: Python's ``re`` for object and
+``string[python]`` columns, RE2 for pyarrow-backed pandas columns, and the Rust ``regex``
+crate for polars. Features such as lookarounds and backreferences are therefore only
+available on Python ``re``.
 
 .. note::
 

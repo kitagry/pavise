@@ -9,6 +9,7 @@ try:
 except ImportError:
     raise ImportError("Polars is not installed. Install it with: pip install pavise[polars]")
 
+from pavise._regex import fullmatch_pattern
 from pavise.exceptions import ValidationError
 from pavise.validators import Custom, Ge, Gt, In, Le, Lt, MaxLen, MinLen, Range, Regex, Unique
 
@@ -182,8 +183,7 @@ def _validate_in(series: "pl.Series", validator: In, col_name: str) -> None:
 
 def _validate_regex(series: "pl.Series", validator: Regex, col_name: str) -> None:
     """Validate that all values in series match the regex pattern."""
-    # Group the pattern so top-level alternation stays inside the anchors
-    invalid_mask = ~series.str.contains(f"^(?:{validator.pattern})$")
+    invalid_mask = ~series.str.contains(fullmatch_pattern(validator.pattern))
     if not invalid_mask.any():
         return
 

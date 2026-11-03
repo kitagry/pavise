@@ -6,6 +6,7 @@ from typing import Any
 
 import pandas as pd
 
+from pavise._regex import fullmatch_pattern
 from pavise.exceptions import ValidationError
 from pavise.validators import Custom, Ge, Gt, In, Le, Lt, MaxLen, MinLen, Range, Regex, Unique
 
@@ -195,11 +196,24 @@ def _validate_in(series: pd.Series, validator: In, col_name: str) -> None:
     )
 
 
+def _is_pyarrow_backed(series: pd.Series) -> bool:
+    """Whether string operations on the series run on pyarrow (RE2) instead of Python re."""
+    # pd.ArrowDtype also reports storage "pyarrow"; checking the attribute avoids referencing
+    # pd.ArrowDtype, which does not exist before pandas 1.5
+    return getattr(series.dtype, "storage", None) in ("pyarrow", "pyarrow_numpy")
+
+
 def _validate_regex(series: pd.Series, validator: Regex, col_name: str) -> None:
     """Validate that all values in series match the regex pattern."""
-    # na=True keeps the mask boolean (nulls are checked by the optional check, not here);
-    # with the default, object columns yield None and `~` raises TypeError
-    invalid_mask = ~series.str.fullmatch(validator.pattern, na=True)
+    if _is_pyarrow_backed(series):
+        # pandas' pyarrow fullmatch only adds anchors that are missing, so `^a|b$` stays
+        # unanchored as a whole; group it ourselves like the polars backend does
+        matched = series.str.contains(fullmatch_pattern(validator.pattern), regex=True, na=True)
+    else:
+        # na=True keeps the mask boolean (nulls are checked by the optional check, not here);
+        # with the default, object columns yield None and `~` raises TypeError
+        matched = series.str.fullmatch(validator.pattern, na=True)
+    invalid_mask = ~matched
     if not invalid_mask.any():
         return
 

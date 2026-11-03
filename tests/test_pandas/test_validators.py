@@ -349,3 +349,61 @@ def test_bound_validator_rejects_incomparable_bound() -> None:
 
     with pytest.raises(ValidationError, match="v.*Ge bound 0 cannot be compared"):
         DataFrame[Schema](pd.DataFrame({"v": [datetime(2021, 1, 1)]}))
+
+
+STRING_DTYPES = [
+    pytest.param("object", id="object"),
+    pytest.param("string[python]", id="string-python"),
+    pytest.param("string[pyarrow]", id="string-pyarrow"),
+    pytest.param("large_string[pyarrow]", id="arrow-dtype"),
+]
+
+
+def _string_series(values: list[str], dtype: str) -> pd.Series:
+    if "pyarrow" in dtype:
+        pytest.importorskip("pyarrow")
+    return pd.Series(values, dtype=dtype)
+
+
+@pytest.mark.parametrize("dtype", STRING_DTYPES)
+@pytest.mark.parametrize(
+    ("pattern", "value"),
+    [
+        (r"[a-z]+", "abc123"),
+        (r"a|b", "ab"),
+        (r"^a|b$", "ab"),
+        (r"(?m)abc", "x\nabc"),
+    ],
+)
+def test_regex_validator_rejects_partial_match_for_every_string_dtype(
+    pattern: str, value: str, dtype: str
+):
+    """Full-match semantics must not depend on how the string column is stored"""
+
+    class Schema(Protocol):
+        v: Annotated[str, Regex(pattern)]
+
+    df = pd.DataFrame({"v": _string_series([value], dtype)})
+    with pytest.raises(ValidationError, match="v.*pattern"):
+        DataFrame[Schema](df)
+
+
+@pytest.mark.parametrize("dtype", STRING_DTYPES)
+@pytest.mark.parametrize(
+    ("pattern", "value"),
+    [
+        (r"[a-z]+", "abc"),
+        (r"^a|b$", "b"),
+        (r"(?i)abc", "ABC"),
+    ],
+)
+def test_regex_validator_accepts_full_match_for_every_string_dtype(
+    pattern: str, value: str, dtype: str
+):
+    """Full matches, including leading inline flags, pass on every string dtype"""
+
+    class Schema(Protocol):
+        v: Annotated[str, Regex(pattern)]
+
+    df = pd.DataFrame({"v": _string_series([value], dtype)})
+    DataFrame[Schema](df)
