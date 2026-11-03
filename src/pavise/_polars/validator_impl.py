@@ -1,6 +1,7 @@
 """Polars-specific validator implementations."""
 
 import operator
+from collections.abc import Callable
 from typing import Any
 
 try:
@@ -22,6 +23,8 @@ _COMPARISONS = {
     Lt: (operator.ge, "<"),
 }
 
+BOUND_VALIDATORS = (Range, *_COMPARISONS)
+
 
 def apply_validator(series: "pl.Series", validator: Any, col_name: str) -> None:
     """
@@ -35,6 +38,9 @@ def apply_validator(series: "pl.Series", validator: Any, col_name: str) -> None:
     Raises:
         ValueError: if validation fails
     """
+    if isinstance(validator, BOUND_VALIDATORS):
+        require_orderable_dtype(series.dtype, validator, col_name)
+
     if isinstance(validator, Range):
         _validate_range(series, validator, col_name)
     elif isinstance(validator, (Ge, Gt, Le, Lt)):
@@ -77,9 +83,40 @@ def _get_invalid_samples(
     return samples, total_invalid
 
 
+def require_orderable_dtype(dtype: "pl.DataType", validator: Any, col_name: str) -> None:
+    """Reject dtypes that cannot be meaningfully ordered against a bound."""
+    # Utf8 would otherwise be compared with the bound as strings and silently pass
+    if dtype.is_numeric() or dtype.is_temporal():
+        return
+    raise ValidationError(
+        f"{type(validator).__name__} requires a numeric or temporal column, got {dtype}",
+        column_name=col_name,
+    )
+
+
+def _compare(
+    series: "pl.Series",
+    op: Callable[[Any, Any], Any],
+    bound: Any,
+    validator: Any,
+    col_name: str,
+) -> "pl.Series":
+    """Compare series with a bound, reporting an incomparable bound as a ValidationError."""
+    try:
+        return op(series, bound)
+    except (TypeError, NotImplementedError, pl.exceptions.PolarsError) as e:
+        raise ValidationError(
+            f"{type(validator).__name__} bound {bound!r} cannot be compared with "
+            f"{series.dtype} values",
+            column_name=col_name,
+        ) from e
+
+
 def _validate_range(series: "pl.Series", validator: Range, col_name: str) -> None:
     """Validate that all values in series are within the specified range."""
-    invalid_mask = (series < validator.min) | (series > validator.max)
+    invalid_mask = _compare(series, operator.lt, validator.min, validator, col_name) | _compare(
+        series, operator.gt, validator.max, validator, col_name
+    )
     if not invalid_mask.any():
         return
 
@@ -98,7 +135,7 @@ def _validate_comparison(series: "pl.Series", validator: Ge | Gt | Le | Lt, col_
     violates, symbol = next(
         entry for cls, entry in _COMPARISONS.items() if isinstance(validator, cls)
     )
-    invalid_mask = violates(series, validator.value)
+    invalid_mask = _compare(series, violates, validator.value, validator, col_name)
     if series.dtype.is_float():
         # Polars orders NaN above every number, so only upper bounds would catch it
         invalid_mask = invalid_mask | series.is_nan()
