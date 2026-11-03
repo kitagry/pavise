@@ -23,6 +23,7 @@ try:
 except ImportError:
     raise ImportError("Polars is not installed. Install it with: pip install pavise[polars]")
 
+from pavise.checks import DataFrameCheck, get_dataframe_checks
 from pavise.exceptions import ValidationError
 
 # Maximum number of invalid sample values to show in error messages
@@ -119,12 +120,66 @@ def validate_dataframe(df: pl.DataFrame, schema: type, strict: bool = False) -> 
         _check_column_exists(df, col_name)
         _check_column_type(df, col_name, col_type)
 
+    schema_cols = [c for c in expected_cols if c in df.columns]
     if strict:
-        schema_cols = set(expected_cols.keys())
-        df_cols = set(df.columns)
-        extra_cols = df_cols - schema_cols
+        extra_cols = set(df.columns) - set(schema_cols)
         if extra_cols:
             raise ValidationError(f"Strict mode: unexpected columns {sorted(extra_cols)}")
+
+    for check in get_dataframe_checks(schema):
+        _run_dataframe_check(df, check, schema_cols)
+
+
+def _run_dataframe_check(df: pl.DataFrame, check: DataFrameCheck, schema_cols: list[str]) -> None:
+    """Run a DataFrame-level check and raise with sample violating rows if it fails."""
+    result = check.func(df)
+    base_message = f"DataFrame check '{check.name}' failed"
+
+    if isinstance(result, pl.Expr):
+        evaluated = df.select(result)
+        if evaluated.width != 1:
+            raise ValidationError(
+                f"DataFrame check '{check.name}' must return an Expr producing a single column, "
+                f"got {evaluated.width} columns"
+            )
+        result = evaluated.to_series()
+        # Aggregations like pl.col("a").sum() == 100 evaluate to one value for the whole frame.
+        if result.len() == 1 and df.height != 1:
+            result = result.item()
+            if result is None:
+                return
+
+    if isinstance(result, bool):
+        if not result:
+            raise ValidationError(base_message)
+        return
+
+    if not isinstance(result, pl.Series) or result.dtype != pl.Boolean:
+        if isinstance(result, pl.Series):
+            type_name = f"Series of dtype {result.dtype}"
+        else:
+            type_name = type(result).__name__
+        raise ValidationError(
+            f"DataFrame check '{check.name}' must return a boolean Series, Expr or bool, "
+            f"got {type_name}"
+        )
+
+    if result.len() != df.height:
+        raise ValidationError(
+            f"DataFrame check '{check.name}' must return one value per row, "
+            f"got {result.len()} values for {df.height} rows"
+        )
+
+    # Null means the check could not be evaluated for the row, which counts as passing.
+    invalid_mask = ~result.fill_null(True)
+    total_invalid = int(invalid_mask.sum())
+    if total_invalid == 0:
+        return
+
+    row_numbers = invalid_mask.arg_true().head(MAX_SAMPLE_SIZE).to_list()
+    invalid_rows = df.select(schema_cols).filter(invalid_mask).head(MAX_SAMPLE_SIZE)
+    samples: list[tuple[Any, ...]] = list(zip(row_numbers, invalid_rows.iter_rows(named=True)))
+    raise ValidationError.new_with_samples(None, base_message, samples, total_invalid)
 
 
 def validate_lazyframe_schema(lf: pl.LazyFrame, schema: type, strict: bool = False) -> None:
@@ -267,16 +322,54 @@ def _extract_type_and_validators(
     return annotation, validators, is_optional, is_not_required
 
 
+def _invalid_value_mask(
+    series: pl.Series, is_valid: Callable[[Any], bool], null_valid: bool
+) -> pl.Series:
+    """
+    Return a boolean mask of values rejected by ``is_valid``, calling it as rarely as possible.
+
+    ``is_valid`` must depend only on the value's type for non-null values (an isinstance check),
+    which holds for every TYPE_CHECKERS value checker.
+    """
+    if series.dtype == pl.Object:
+        cache: dict[type, bool] = {}
+
+        def is_invalid(value: Any) -> bool:
+            if value is None:
+                return not null_valid
+            value_type = type(value)
+            if value_type not in cache:
+                cache[value_type] = not is_valid(value)
+            return cache[value_type]
+
+        return series.map_elements(is_invalid, return_dtype=pl.Boolean, skip_nulls=False)
+
+    # Non-null values of any non-Object dtype all share one Python type, so a single element
+    # decides for the whole column.
+    is_null = series.is_null()
+    null_count = series.null_count()
+    invalid_non_null = False
+    if null_count < series.len():
+        first = 0 if null_count == 0 else int(is_null.arg_min())  # type: ignore[arg-type]
+        invalid_non_null = not is_valid(series[first])
+    return (is_null & (not null_valid)) | (~is_null & invalid_non_null)
+
+
+def _collect_samples(series: pl.Series, invalid_mask: pl.Series) -> list[tuple[Any, Any]]:
+    """Return up to MAX_SAMPLE_SIZE (row, value) pairs where ``invalid_mask`` is set."""
+    invalid_df = series.to_frame().with_row_index("__row__").filter(invalid_mask)
+    return [
+        (row["__row__"], row[series.name])
+        for row in invalid_df.head(MAX_SAMPLE_SIZE).iter_rows(named=True)
+    ]
+
+
 def _raise_type_error_with_samples(
     df: pl.DataFrame, col_name: str, checker: TypeChecker, expected_type: type, actual_dtype: Any
 ) -> None:
     """Raise TypeError with sample invalid values."""
-    invalid_mask = df[col_name].map_elements(lambda v: not checker.value(v))
-    invalid_df = df[col_name].to_frame().with_row_index("__row__").filter(invalid_mask)
-    samples = [
-        (row["__row__"], row[col_name])
-        for row in invalid_df.head(MAX_SAMPLE_SIZE).iter_rows(named=True)
-    ]
+    invalid_mask = _invalid_value_mask(df[col_name], checker.value, null_valid=True)
+    samples = _collect_samples(df[col_name], invalid_mask)
     total_invalid = int(invalid_mask.sum())
 
     raise ValidationError.new_with_samples(
@@ -316,11 +409,7 @@ def _check_column_type(df: pl.DataFrame, col_name: str, expected_type: type) -> 
         allowed_values = get_args(base_type)
         invalid_mask = ~df[col_name].is_in(allowed_values)
         if invalid_mask.any():
-            invalid_df = df[col_name].to_frame().with_row_index("__row__").filter(invalid_mask)
-            samples = [
-                (row["__row__"], row[col_name])
-                for row in invalid_df.head(MAX_SAMPLE_SIZE).iter_rows(named=True)
-            ]
+            samples = _collect_samples(df[col_name], invalid_mask)
             total_invalid = int(invalid_mask.sum())
             raise ValidationError.new_with_samples(
                 col_name,
@@ -342,20 +431,13 @@ def _check_column_type(df: pl.DataFrame, col_name: str, expected_type: type) -> 
                 raise ValidationError(f"unsupported type: {union_type}", column_name=col_name)
 
         # Check if each value matches at least one of the union types
-        def check_union_value(value: Any) -> bool:
-            if value is None:
-                return is_optional
-            return any(TYPE_CHECKERS[t].value(value) for t in union_types)
-
-        invalid_mask = df[col_name].map_elements(
-            lambda v: not check_union_value(v), return_dtype=pl.Boolean, skip_nulls=False
+        invalid_mask = _invalid_value_mask(
+            df[col_name],
+            lambda value: any(TYPE_CHECKERS[t].value(value) for t in union_types),
+            null_valid=is_optional,
         )
         if invalid_mask.any():
-            invalid_df = df[col_name].to_frame().with_row_index("__row__").filter(invalid_mask)
-            samples = [
-                (row["__row__"], row[col_name])
-                for row in invalid_df.head(MAX_SAMPLE_SIZE).iter_rows(named=True)
-            ]
+            samples = _collect_samples(df[col_name], invalid_mask)
             total_invalid = int(invalid_mask.sum())
             union_type_names = " | ".join(t.__name__ for t in base_type)
             raise ValidationError.new_with_samples(

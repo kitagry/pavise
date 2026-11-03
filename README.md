@@ -163,6 +163,31 @@ class OrderSchema(Protocol):
     quantity: Annotated[int, Gt(0)]
 ```
 
+### DataFrame-Level Checks
+
+Use the `@dataframe_check` class decorator to validate relationships across columns, such as `start_at < end_at` or `total == a + b`:
+
+```python
+from datetime import datetime
+from typing import Protocol
+import pandas as pd
+from pavise.checks import dataframe_check
+from pavise.pandas import DataFrame
+
+@dataframe_check(lambda df: df["start_at"] < df["end_at"], name="start_before_end")
+class EventSchema(Protocol):
+    start_at: datetime
+    end_at: datetime
+
+DataFrame[EventSchema](df)
+# ValidationError: DataFrame check 'start_before_end' failed
+#
+# Sample invalid values (showing first 1 of 1):
+#   Row 1: {'start_at': Timestamp('2024-01-05 00:00:00'), 'end_at': Timestamp('2024-01-03 00:00:00')}
+```
+
+The check function receives the backend's native DataFrame and returns a boolean per row (`pd.Series`, `pl.Series` or `pl.Expr`) or a single `bool`. Checks run after column validation, and `polars.LazyFrame` runs them on `collect()`. The decorator does not add members to the Protocol, so structural subtyping keeps working.
+
 ### Union Types
 
 Union types allow columns to accept multiple different types:

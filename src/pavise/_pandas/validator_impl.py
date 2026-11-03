@@ -65,7 +65,7 @@ def _get_invalid_samples(
     Returns:
         Tuple of (samples, total_invalid) where samples is a list of (index, value) tuples
     """
-    invalid_indices: list[Any] = list(series.index[invalid_mask])[:MAX_SAMPLE_SIZE]  # type: ignore[index]
+    invalid_indices = series.index[invalid_mask][:MAX_SAMPLE_SIZE].tolist()  # type: ignore[index]
     samples: list[tuple[Any, Any]] = [(idx, series.loc[idx]) for idx in invalid_indices]
     total_invalid = invalid_mask.sum()
     return samples, total_invalid
