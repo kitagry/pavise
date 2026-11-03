@@ -91,6 +91,9 @@ class In:
 class Regex:
     r"""Validate that string values match a regular expression pattern.
 
+    The whole string must match (``re.fullmatch`` semantics), so ``^`` and ``$``
+    anchors are optional.
+
     Example:
         email: Annotated[str, Regex(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$')]
     """
