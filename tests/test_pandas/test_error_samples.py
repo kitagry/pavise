@@ -5,7 +5,7 @@ and counts as a per-element check would.
 """
 
 from datetime import date, datetime
-from typing import Annotated, Literal, Protocol
+from typing import Annotated, Any, Literal, Protocol
 
 import numpy as np
 import pandas as pd
@@ -83,7 +83,7 @@ class StrIndexSchema(Protocol):
         ),
         pytest.param(
             IntSchema,
-            pd.DataFrame({"v": ["x", "y", 3]}, index=["r0", "r1", "r2"]),
+            pd.DataFrame({"v": ["x", "y", 3]}, index=pd.Index(["r0", "r1", "r2"])),
             "Column 'v': expected int, got object\n\n"
             "Sample invalid values (showing first 2 of 2):\n  Row r0: 'x'\n  Row r1: 'y'",
             [("r0", "x"), ("r1", "y")],
@@ -161,7 +161,9 @@ class StrIndexSchema(Protocol):
         ),
     ],
 )
-def test_error_reports_exact_samples(schema, df, message, samples):
+def test_error_reports_exact_samples(
+    schema: type, df: pd.DataFrame, message: str, samples: list[tuple[Any, Any]]
+):
     with pytest.raises(ValidationError) as exc_info:
         DataFrame[schema](df)
 
@@ -191,7 +193,7 @@ def test_error_reports_exact_samples(schema, df, message, samples):
         ),
     ],
 )
-def test_valid_dataframe_passes(schema, df):
+def test_valid_dataframe_passes(schema: type, df: pd.DataFrame):
     DataFrame[schema](df)
 
 

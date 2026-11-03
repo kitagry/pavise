@@ -5,7 +5,7 @@ and counts as a per-element check would.
 """
 
 from datetime import date, datetime
-from typing import Protocol
+from typing import Any, Protocol
 
 import polars as pl
 import pytest
@@ -130,7 +130,9 @@ class DateOrStrSchema(Protocol):
         ),
     ],
 )
-def test_error_reports_exact_samples(schema, df, message, samples):
+def test_error_reports_exact_samples(
+    schema: type, df: pl.DataFrame, message: str, samples: list[tuple[Any, Any]]
+):
     with pytest.raises(ValidationError) as exc_info:
         DataFrame[schema](df)
 
@@ -154,5 +156,5 @@ def test_error_reports_exact_samples(schema, df, message, samples):
         ),
     ],
 )
-def test_valid_dataframe_passes(schema, df):
+def test_valid_dataframe_passes(schema: type, df: pl.DataFrame):
     DataFrame[schema](df)
