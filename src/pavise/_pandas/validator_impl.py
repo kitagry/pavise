@@ -136,7 +136,9 @@ def _validate_in(series: pd.Series, validator: In, col_name: str) -> None:
 
 def _validate_regex(series: pd.Series, validator: Regex, col_name: str) -> None:
     """Validate that all values in series match the regex pattern."""
-    invalid_mask = ~series.str.match(validator.pattern)
+    # na=True keeps the mask boolean (nulls are checked by the optional check, not here);
+    # with the default, object columns yield None and `~` raises TypeError
+    invalid_mask = ~series.str.fullmatch(validator.pattern, na=True)
     if not invalid_mask.any():
         return
 

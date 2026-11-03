@@ -122,6 +122,18 @@ Regex
 
 Validates that string values match a regular expression pattern.
 
+The **whole string** must match the pattern (equivalent to Python's ``re.fullmatch``),
+on both the pandas and polars backends. ``^`` and ``$`` anchors are therefore optional:
+``Regex(r'[a-z]+')`` rejects ``'abc123'``.
+
+.. note::
+
+   In pavise 0.1.7 and earlier, the pandas backend only required the pattern to match at the
+   start of the string (``re.match``), so ``Regex(r'[a-z]+')`` accepted ``'abc123'``.
+   The polars backend anchored the pattern without grouping it, so a top-level alternation
+   such as ``Regex(r'a|b')`` accepted ``'ab'``.
+   If you relied on prefix matching, append ``.*`` to the pattern (e.g. ``Regex(r'[a-z]+.*')``).
+
 .. code-block:: python
 
    from pavise.validators import Regex

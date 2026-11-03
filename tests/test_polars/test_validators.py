@@ -95,6 +95,53 @@ def test_regex_validator_rejects_non_matching_values():
         DataFrame[EmailSchema](df)
 
 
+@pytest.mark.parametrize(
+    ("pattern", "value"),
+    [
+        (r"[a-z]+", "abc123"),
+        (r"[a-z]+", "123abc"),
+        (r"a|b", "ab"),
+    ],
+)
+def test_regex_validator_rejects_partial_match(pattern: str, value: str):
+    """Regex validator requires the whole string to match the pattern"""
+
+    class Schema(Protocol):
+        v: Annotated[str, Regex(pattern)]
+
+    df = pl.DataFrame({"v": [value]})
+    with pytest.raises(ValidationError, match="v.*pattern"):
+        DataFrame[Schema](df)
+
+
+@pytest.mark.parametrize(
+    ("pattern", "value"),
+    [
+        (r"[a-z]+", "abc"),
+        (r"a|b", "b"),
+        (r"^[a-z]+$", "abc"),
+    ],
+)
+def test_regex_validator_accepts_full_match(pattern: str, value: str):
+    """Regex validator accepts values whose whole string matches the pattern"""
+
+    class Schema(Protocol):
+        v: Annotated[str, Regex(pattern)]
+
+    df = pl.DataFrame({"v": [value]})
+    DataFrame[Schema](df)
+
+
+def test_regex_validator_ignores_null_in_optional_column():
+    """Regex validator skips nulls in Optional columns like the comparison validators do"""
+
+    class Schema(Protocol):
+        v: Annotated[str | None, Regex(r"[a-z]+")]
+
+    df = pl.DataFrame({"v": ["abc", None]})
+    DataFrame[Schema](df)
+
+
 def test_minlen_validator_accepts_valid_length():
     """MinLen validator accepts strings with sufficient length"""
     df = pl.DataFrame({"username": ["alice", "bob123", "charlie"]})

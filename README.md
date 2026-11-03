@@ -162,7 +162,7 @@ Available validators:
 | `Le(value)` / `Lt(value)` | Numeric values `<= value` / `< value` |
 | `Unique()` | No duplicate values |
 | `In(values)` | Values within an allowed set |
-| `Regex(pattern)` | Strings matching a regular expression |
+| `Regex(pattern)` | Strings fully matching a regular expression (`re.fullmatch`) |
 | `MinLen(n)` / `MaxLen(n)` | String length bounds |
 | `Custom(func, message)` | Custom validation function |
 
