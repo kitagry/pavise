@@ -1,4 +1,4 @@
-"""Custom exceptions for patrol."""
+"""Custom exceptions for pavise."""
 
 from __future__ import annotations
 
@@ -8,13 +8,15 @@ from typing import Any
 from typing_extensions import Self
 
 
-class PatrolError(Exception):
-    """Base exception for all patrol errors."""
-
-    pass
+class PaviseError(Exception):
+    """Base exception for all pavise errors."""
 
 
-class ValidationError(PatrolError):
+# Kept for backward compatibility with code written against the old project name.
+PatrolError = PaviseError
+
+
+class ValidationError(PaviseError):
     """
     Raised when DataFrame validation fails.
 

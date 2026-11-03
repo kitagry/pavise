@@ -4,7 +4,7 @@ Getting Started
 Installation
 ------------
 
-Pavise requires Python 3.9 or later. Install it via pip with your preferred backend:
+Pavise requires Python 3.10 or later. Install it via pip with your preferred backend:
 
 For pandas backend:
 

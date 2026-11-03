@@ -227,8 +227,8 @@ uv pip install -e ".[dev]"
 uv run pytest
 
 # Run tests for specific backend
-uv run pytest tests/test_pandas.py
-uv run pytest tests/test_polars.py
+uv run pytest tests/test_pandas/
+uv run pytest tests/test_polars/
 ```
 
 ### Testing with tox
@@ -248,6 +248,6 @@ tox -e lint
 # Run type checking
 tox -e type
 
-# Available Python versions: py39, py310, py311, py312
+# Available Python versions: py310, py311, py312, py313, py314
 # Available backends: pandas, polars, all
 ```
