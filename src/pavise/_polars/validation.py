@@ -291,10 +291,22 @@ def _invalid_value_mask(
 
     # Non-null values of any non-Object dtype all share one Python type, so a single element
     # decides for the whole column.
-    non_null = series.drop_nulls()
-    invalid_non_null = non_null.len() > 0 and not is_valid(non_null[0])
     is_null = series.is_null()
+    null_count = series.null_count()
+    invalid_non_null = False
+    if null_count < series.len():
+        first = 0 if null_count == 0 else int(is_null.arg_min())  # type: ignore[arg-type]
+        invalid_non_null = not is_valid(series[first])
     return (is_null & (not null_valid)) | (~is_null & invalid_non_null)
+
+
+def _collect_samples(series: pl.Series, invalid_mask: pl.Series) -> list[tuple[Any, Any]]:
+    """Return up to MAX_SAMPLE_SIZE (row, value) pairs where ``invalid_mask`` is set."""
+    invalid_df = series.to_frame().with_row_index("__row__").filter(invalid_mask)
+    return [
+        (row["__row__"], row[series.name])
+        for row in invalid_df.head(MAX_SAMPLE_SIZE).iter_rows(named=True)
+    ]
 
 
 def _raise_type_error_with_samples(
@@ -302,11 +314,7 @@ def _raise_type_error_with_samples(
 ) -> None:
     """Raise TypeError with sample invalid values."""
     invalid_mask = _invalid_value_mask(df[col_name], checker.value, null_valid=True)
-    invalid_df = df[col_name].to_frame().with_row_index("__row__").filter(invalid_mask)
-    samples = [
-        (row["__row__"], row[col_name])
-        for row in invalid_df.head(MAX_SAMPLE_SIZE).iter_rows(named=True)
-    ]
+    samples = _collect_samples(df[col_name], invalid_mask)
     total_invalid = int(invalid_mask.sum())
 
     raise ValidationError.new_with_samples(
@@ -346,11 +354,7 @@ def _check_column_type(df: pl.DataFrame, col_name: str, expected_type: type) -> 
         allowed_values = get_args(base_type)
         invalid_mask = ~df[col_name].is_in(allowed_values)
         if invalid_mask.any():
-            invalid_df = df[col_name].to_frame().with_row_index("__row__").filter(invalid_mask)
-            samples = [
-                (row["__row__"], row[col_name])
-                for row in invalid_df.head(MAX_SAMPLE_SIZE).iter_rows(named=True)
-            ]
+            samples = _collect_samples(df[col_name], invalid_mask)
             total_invalid = int(invalid_mask.sum())
             raise ValidationError.new_with_samples(
                 col_name,
@@ -378,11 +382,7 @@ def _check_column_type(df: pl.DataFrame, col_name: str, expected_type: type) -> 
             null_valid=is_optional,
         )
         if invalid_mask.any():
-            invalid_df = df[col_name].to_frame().with_row_index("__row__").filter(invalid_mask)
-            samples = [
-                (row["__row__"], row[col_name])
-                for row in invalid_df.head(MAX_SAMPLE_SIZE).iter_rows(named=True)
-            ]
+            samples = _collect_samples(df[col_name], invalid_mask)
             total_invalid = int(invalid_mask.sum())
             union_type_names = " | ".join(t.__name__ for t in base_type)
             raise ValidationError.new_with_samples(

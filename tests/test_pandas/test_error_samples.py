@@ -142,6 +142,14 @@ class StrIndexSchema(Protocol):
             id="union-categorical-mixed",
         ),
         pytest.param(
+            UnionSchema,
+            pd.DataFrame({"v": pd.arrays.SparseArray([1, "a", 2.5], dtype=pd.SparseDtype(object))}),
+            "Column 'v': expected int | str, got Sparse[object, nan]\n\n"
+            "Sample invalid values (showing first 1 of 1):\n  Row 2: 2.5",
+            [(2, 2.5)],
+            id="union-sparse-object-mixed",
+        ),
+        pytest.param(
             LiteralSchema,
             pd.DataFrame({"v": ["a", "x", "y", "z", "w", "v", "u", "b"]}),
             "Column 'v': expected one of ('a', 'b'), got invalid values\n\n"
@@ -186,6 +194,11 @@ def test_error_reports_exact_samples(
             id="object-date-with-nulls-and-datetime",
         ),
         pytest.param(UnionSchema, pd.DataFrame({"v": np.arange(3)}), id="union-int64"),
+        pytest.param(
+            UnionSchema,
+            pd.DataFrame({"v": pd.arrays.SparseArray([1, "a"], dtype=pd.SparseDtype(object))}),
+            id="union-sparse-object",
+        ),
         pytest.param(
             OptionalUnionSchema,
             pd.DataFrame({"v": [1, "a", None, np.nan, True]}),

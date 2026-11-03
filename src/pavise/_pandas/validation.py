@@ -45,7 +45,7 @@ def type_check_str(df: pd.Series | pd.Index) -> bool:
         # infer_dtype scans in C; only fall back to the exact per-element check when it is unsure.
         if pd.api.types.infer_dtype(df, skipna=True) in ("string", "empty"):
             return True
-        return bool(df.apply(lambda x: isinstance(x, str) or pd.isna(x)).all())
+        return not _invalid_value_mask(df, lambda x: isinstance(x, str), null_valid=True).any()
     return False
 
 
@@ -56,7 +56,7 @@ def type_check_date(df: pd.Series | pd.Index) -> bool:
     elif df.dtype == object:
         if pd.api.types.infer_dtype(df, skipna=True) in ("date", "datetime", "empty"):
             return True
-        return bool(df.apply(lambda x: isinstance(x, date) or pd.isna(x)).all())
+        return not _invalid_value_mask(df, lambda x: isinstance(x, date), null_valid=True).any()
     return False
 
 
@@ -69,6 +69,10 @@ def _invalid_value_mask(
     ``is_valid`` must depend only on the value's type for non-null values (an isinstance check),
     which holds for every TYPE_CHECKERS value checker.
     """
+    if isinstance(series.dtype, pd.SparseDtype):
+        # SparseArray.map rejects mappers that send a stored value to the fill value's result,
+        # and Sparse[object] may mix Python types, so check the dense values instead.
+        series = series.sparse.to_dense()
     na = series.isna().to_numpy(dtype=bool)
     valid = np.full(len(series), null_valid, dtype=bool)
     nonnull = ~na
