@@ -143,6 +143,14 @@ The regex syntax follows the engine that runs it: Python's ``re`` for object and
 crate for polars. Features such as lookarounds and backreferences are therefore only
 available on Python ``re``.
 
+On pyarrow-backed pandas columns, pandas also checks the pattern with Python's ``re`` before
+handing it to RE2, so the pattern must be valid for both (RE2-only syntax such as ``\pL`` is
+rejected there).
+
+If the engine cannot compile the pattern (a syntax error, or syntax it does not support),
+validation raises ``ValidationError`` naming the column and the pattern, for example
+``Column 'v': invalid regex pattern '(': ...``.
+
 .. note::
 
    In pavise 0.1.7 and earlier, the pandas backend only required the pattern to match at the

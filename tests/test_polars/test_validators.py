@@ -386,3 +386,34 @@ def test_regex_validator_matches_pandas_semantics(pattern: str, value: str, vali
     else:
         with pytest.raises(ValidationError, match="v.*pattern"):
             DataFrame[Schema](df)
+
+
+def test_regex_validator_reports_invalid_pattern_as_validation_error():
+    """A pattern the engine cannot compile raises ValidationError, not a raw backend error"""
+
+    class Schema(Protocol):
+        v: Annotated[str, Regex("(")]
+
+    with pytest.raises(ValidationError, match=r"v.*invalid regex pattern '\('") as exc_info:
+        DataFrame[Schema](pl.DataFrame({"v": ["abc"]}))
+    assert exc_info.value.column_name == "v"
+
+
+def test_regex_validator_invalid_pattern_error_includes_engine_reason():
+    """polars spreads its reason over several lines; the actual cause must survive"""
+
+    class Schema(Protocol):
+        v: Annotated[str, Regex("(")]
+
+    with pytest.raises(ValidationError, match="unclosed group"):
+        DataFrame[Schema](pl.DataFrame({"v": ["abc"]}))
+
+
+def test_regex_validator_rejects_pattern_that_only_compiles_once_wrapped():
+    """`a)|(b` is invalid, but wrapped as `^(?:a)|(b)$` it would compile and match prefixes"""
+
+    class Schema(Protocol):
+        v: Annotated[str, Regex("a)|(b")]
+
+    with pytest.raises(ValidationError, match=r"v.*invalid regex pattern"):
+        DataFrame[Schema](pl.DataFrame({"v": ["axyz"]}))
