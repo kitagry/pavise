@@ -456,8 +456,10 @@ def test_regex_validator_rejects_pattern_that_only_compiles_once_wrapped(dtype: 
 def test_regex_validator_reports_re2_unsupported_syntax_on_empty_column(dtype: str):
     """The pattern error must not depend on whether the column has data yet"""
 
+    # pandas 3 falls back to Python re for some RE2-unsupported syntax (e.g. lookbehind),
+    # but not for verbose mode, so (?x) fails on every supported pandas version
     class Schema(Protocol):
-        v: Annotated[str, Regex(r"(?<=a)b")]
+        v: Annotated[str, Regex(r"(?x)a")]
 
     df = pd.DataFrame({"v": _string_series([], dtype)})
     with pytest.raises(ValidationError, match=r"v.*invalid regex pattern"):
