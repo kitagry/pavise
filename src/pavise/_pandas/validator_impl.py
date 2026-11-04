@@ -1,13 +1,14 @@
 """Pandas-specific validator implementations."""
 
 import operator
+import re
 from collections.abc import Callable
 from typing import Any
 
 import numpy as np
 import pandas as pd
 
-from pavise._regex import fullmatch_pattern
+from pavise._regex import fullmatch_pattern, invalid_pattern_error
 from pavise.exceptions import ValidationError
 from pavise.validators import Custom, Ge, Gt, In, Le, Lt, MaxLen, MinLen, Range, Regex, Unique
 
@@ -210,13 +211,26 @@ def _is_pyarrow_backed(series: pd.Series) -> bool:
 def _validate_regex(series: pd.Series, validator: Regex, col_name: str) -> None:
     """Validate that all values in series match the regex pattern."""
     if _is_pyarrow_backed(series):
-        # pandas' pyarrow fullmatch only adds anchors that are missing, so `^a|b$` stays
-        # unanchored as a whole; group it ourselves like the polars backend does
-        matched = series.str.contains(fullmatch_pattern(validator.pattern), regex=True, na=True)
+        try:
+            # Compile the pattern as written first: wrapping can make an invalid pattern valid
+            # (`a)|(b` becomes `^(?:a)|(b)$`), and the error then points into the user's text.
+            # One element because pyarrow skips compiling on empty input; count, unlike
+            # contains, does not warn about capture groups
+            pd.Series([""], dtype=series.dtype).str.count(validator.pattern)
+            # pandas' pyarrow fullmatch only adds anchors that are missing, so `^a|b$` stays
+            # unanchored as a whole; group it ourselves like the polars backend does
+            matched = series.str.contains(fullmatch_pattern(validator.pattern), regex=True, na=True)
+        # pyarrow's ArrowInvalid (RE2 compile errors) subclasses ValueError; matching it by
+        # base class avoids importing pyarrow, which is optional
+        except (re.error, ValueError) as e:
+            raise invalid_pattern_error(validator.pattern, col_name, e) from e
     else:
-        # na=True keeps the mask boolean (nulls are checked by the optional check, not here);
-        # with the default, object columns yield None and `~` raises TypeError
-        matched = series.str.fullmatch(validator.pattern, na=True)
+        try:
+            # na=True keeps the mask boolean (nulls are checked by the optional check, not
+            # here); with the default, object columns yield None and `~` raises TypeError
+            matched = series.str.fullmatch(validator.pattern, na=True)
+        except re.error as e:
+            raise invalid_pattern_error(validator.pattern, col_name, e) from e
     invalid_mask = ~matched
     if not invalid_mask.any():
         return

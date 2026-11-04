@@ -407,3 +407,60 @@ def test_regex_validator_accepts_full_match_for_every_string_dtype(
 
     df = pd.DataFrame({"v": _string_series([value], dtype)})
     DataFrame[Schema](df)
+
+
+@pytest.mark.parametrize("dtype", STRING_DTYPES)
+def test_regex_validator_reports_invalid_pattern_as_validation_error(dtype: str):
+    """A pattern the engine cannot compile raises ValidationError, not a raw backend error"""
+
+    class Schema(Protocol):
+        v: Annotated[str, Regex("(")]
+
+    df = pd.DataFrame({"v": _string_series(["abc"], dtype)})
+    with pytest.raises(ValidationError, match=r"v.*invalid regex pattern '\('") as exc_info:
+        DataFrame[Schema](df)
+    assert exc_info.value.column_name == "v"
+
+
+@pytest.mark.parametrize(
+    "dtype",
+    [d for d in STRING_DTYPES if "pyarrow" in str(d.values[0])],
+)
+def test_regex_validator_reports_re2_unsupported_syntax_as_validation_error(dtype: str):
+    """RE2 has no verbose mode; pyarrow's ArrowInvalid surfaces as ValidationError"""
+
+    class Schema(Protocol):
+        v: Annotated[str, Regex(r"(?x)a")]
+
+    df = pd.DataFrame({"v": _string_series(["a"], dtype)})
+    with pytest.raises(ValidationError, match=r"v.*invalid regex pattern"):
+        DataFrame[Schema](df)
+
+
+@pytest.mark.parametrize("dtype", STRING_DTYPES)
+def test_regex_validator_rejects_pattern_that_only_compiles_once_wrapped(dtype: str):
+    """`a)|(b` is invalid, but wrapped as `^(?:a)|(b)$` it would compile and match prefixes"""
+
+    class Schema(Protocol):
+        v: Annotated[str, Regex("a)|(b")]
+
+    df = pd.DataFrame({"v": _string_series(["axyz"], dtype)})
+    with pytest.raises(ValidationError, match=r"v.*invalid regex pattern"):
+        DataFrame[Schema](df)
+
+
+@pytest.mark.parametrize(
+    "dtype",
+    [d for d in STRING_DTYPES if "pyarrow" in str(d.values[0])],
+)
+def test_regex_validator_reports_re2_unsupported_syntax_on_empty_column(dtype: str):
+    """The pattern error must not depend on whether the column has data yet"""
+
+    # pandas 3 falls back to Python re for some RE2-unsupported syntax (e.g. lookbehind),
+    # but not for verbose mode, so (?x) fails on every supported pandas version
+    class Schema(Protocol):
+        v: Annotated[str, Regex(r"(?x)a")]
+
+    df = pd.DataFrame({"v": _string_series([], dtype)})
+    with pytest.raises(ValidationError, match=r"v.*invalid regex pattern"):
+        DataFrame[Schema](df)
