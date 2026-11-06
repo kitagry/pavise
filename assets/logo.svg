@@ -1,0 +1,65 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-label="pavise logo: a tall shield protecting a panda and a polar bear">
+  <title>pavise</title>
+  <defs>
+    <linearGradient id="shield" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#3f74b0"/>
+      <stop offset="1" stop-color="#284f80"/>
+    </linearGradient>
+    <linearGradient id="ridge" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#6c9ad0"/>
+      <stop offset="1" stop-color="#4a77ad"/>
+    </linearGradient>
+  </defs>
+
+  <!-- light outline so the animals stay visible on dark backgrounds -->
+  <g fill="#ffffff" stroke="#ffffff" stroke-width="10" stroke-linejoin="round">
+    <circle cx="32" cy="160" r="14"/>
+    <circle cx="80" cy="152" r="14"/>
+    <circle cx="54" cy="186" r="38"/>
+    <circle cx="178" cy="152" r="13"/>
+    <circle cx="224" cy="160" r="13"/>
+    <circle cx="202" cy="186" r="38"/>
+  </g>
+
+  <!-- panda, peeking out from behind the left edge -->
+  <g stroke="#1f2328" stroke-width="4" stroke-linejoin="round">
+    <circle cx="32" cy="160" r="12" fill="#1f2328"/>
+    <circle cx="80" cy="152" r="12" fill="#1f2328"/>
+    <circle cx="54" cy="186" r="36" fill="#ffffff"/>
+  </g>
+  <g fill="#1f2328">
+    <ellipse cx="39" cy="182" rx="9" ry="12" transform="rotate(25 39 182)"/>
+    <ellipse cx="66" cy="182" rx="9" ry="12" transform="rotate(-25 66 182)"/>
+    <ellipse cx="52" cy="201" rx="6" ry="4.5"/>
+  </g>
+  <g fill="#ffffff">
+    <circle cx="41" cy="180" r="3"/>
+    <circle cx="64" cy="180" r="3"/>
+  </g>
+
+  <!-- polar bear, peeking out from behind the right edge -->
+  <g stroke="#1f2328" stroke-width="4" stroke-linejoin="round" fill="#f3f1ea">
+    <circle cx="178" cy="152" r="11"/>
+    <circle cx="224" cy="160" r="11"/>
+    <circle cx="202" cy="186" r="36"/>
+  </g>
+  <circle cx="178" cy="152" r="5" fill="#d9d3c4"/>
+  <circle cx="224" cy="160" r="5" fill="#d9d3c4"/>
+  <ellipse cx="204" cy="200" rx="14" ry="11" fill="#e4dfd2"/>
+  <g fill="#1f2328">
+    <circle cx="192" cy="180" r="4"/>
+    <circle cx="216" cy="180" r="4"/>
+    <ellipse cx="204" cy="195" rx="6" ry="4.5"/>
+  </g>
+
+  <!-- the pavise: a tall shield standing in front of them -->
+  <path d="M78 34 Q128 14 178 34 L172 210 Q128 230 84 210 Z"
+        fill="url(#shield)" stroke="#1b3657" stroke-width="6" stroke-linejoin="round"/>
+  <path d="M116 26 Q128 23 140 26 L138 222 Q128 225 118 222 Z" fill="url(#ridge)"/>
+  <path d="M78 34 Q128 14 178 34 L172 210 Q128 230 84 210 Z"
+        fill="none" stroke="#1b3657" stroke-width="6" stroke-linejoin="round"/>
+
+  <!-- check mark: the data passed validation -->
+  <path d="M104 116 L122 136 L154 96" fill="none" stroke="#ffffff" stroke-width="13"
+        stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

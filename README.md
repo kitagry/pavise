@@ -1,6 +1,8 @@
 <div align="center">
 
-<h1>🛡️ pavise</h1>
+<img alt="pavise logo: a shield protecting a panda and a polar bear" src="https://raw.githubusercontent.com/kitagry/pavise/main/assets/logo.svg" width="160" height="160">
+
+<h1>pavise</h1>
 
 <p><strong>Type-safe DataFrame validation with Python Protocols.</strong><br>
 Describe your columns once with <code>typing.Protocol</code>, and get static type checking and runtime validation for pandas and polars.</p>
@@ -106,6 +108,7 @@ Sample invalid values (showing first 2 of 2):
 
 A **pavise** was a large shield used by medieval crossbowmen, big enough to cover the whole body.
 Like its namesake, this library is a shield for your data: whether your datasets are small or big, pavise protects your code with type safety and validation.
+The logo shows that shield guarding a panda and a polar bear: your pandas and polars DataFrames.
 
 ## 📦 Installation
 
