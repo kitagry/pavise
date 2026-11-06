@@ -40,6 +40,11 @@ Runtime Validation
 
 At system boundaries (loading from CSV, database, API), validate explicitly:
 
+.. example-setup
+
+   with open("users.csv", "w") as f:
+       f.write("user_id,name\n1,Alice\n2,Bob\n")
+
 .. code-block:: python
 
    import pandas as pd
@@ -80,6 +85,13 @@ Backend Selection
 
 pandas Backend
 ~~~~~~~~~~~~~~
+
+.. example-setup
+
+   import polars as pl
+
+   pandas_df = pd.DataFrame({"user_id": [1], "name": ["Alice"]})
+   polars_df = pl.DataFrame({"user_id": [1], "name": ["Alice"]})
 
 .. code-block:: python
 
@@ -122,6 +134,8 @@ Optional Columns
 ~~~~~~~~~~~~~~~~
 
 Use ``NotRequiredColumn[T]`` for columns that may not exist in the DataFrame:
+
+.. example-raises: ValidationError
 
 .. code-block:: python
 
@@ -177,6 +191,8 @@ Generic Types
 * ``Literal[...]``: Restricts values to specific literals
 
 The ``Literal`` type is useful for columns that should only contain specific values:
+
+.. example-raises: ValidationError
 
 .. code-block:: python
 

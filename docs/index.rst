@@ -33,6 +33,12 @@ Installation:
 
 Basic usage:
 
+.. example-setup
+
+   import pandas as pd
+
+   raw_df = pd.DataFrame({"user_id": [1, 2], "name": ["Alice", "Bob"], "age": [30, 25]})
+
 .. code-block:: python
 
    from typing import Protocol

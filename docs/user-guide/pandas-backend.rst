@@ -66,6 +66,11 @@ You can use pandas extension dtypes directly:
        nullable_int: pd.Int64Dtype
        string: pd.StringDtype
 
+   df = pd.DataFrame({
+       "category": pd.Categorical(["a", "b"]),
+       "nullable_int": pd.array([1, None], dtype=pd.Int64Dtype()),
+       "string": pd.array(["x", "y"], dtype=pd.StringDtype()),
+   })
    validated_df = DataFrame[Schema](df)
 
 This gives you more control over the exact dtype used.
@@ -145,7 +150,10 @@ For MultiIndex, use a tuple of types with a tuple of names:
 Nullable Types
 --------------
 
-pandas handles nullable integers specially:
+pandas converts integers with nulls to ``float64``, which does not match ``Optional[int]``.
+Use the nullable ``Int64`` dtype instead:
+
+.. example-raises: ValidationError
 
 .. code-block:: python
 
@@ -154,11 +162,14 @@ pandas handles nullable integers specially:
    class Schema(Protocol):
        value: Optional[int]
 
+   df = pd.DataFrame({"value": [1, 2, None]}, dtype="Int64")
+   validated_df = DataFrame[Schema](df)  # OK
+
    # pandas converts int to float64 when there are nulls
    df = pd.DataFrame({"value": [1, 2, None]})  # dtype: float64
-   validated_df = DataFrame[Schema](df)
+   DataFrame[Schema](df)  # ValidationError
 
-For true nullable integers, use ``pd.Int64Dtype``:
+You can also use ``pd.Int64Dtype`` as the column type directly:
 
 .. code-block:: python
 
@@ -173,12 +184,25 @@ Method Chaining
 
 Note: pandas method chaining may lose Pavise type information:
 
+.. example-setup
+
+   class UserSchema(Protocol):
+       user_id: int
+       name: str
+       age: int
+
+   class ResultSchema(Protocol):
+       user_id: float
+
+   df = pd.DataFrame({"user_id": [1, 2, 3], "name": ["Alice", "Bob", "Charlie"], "age": [25, 30, 30]})
+   raw_df = df
+
 .. code-block:: python
 
    validated_df = DataFrame[UserSchema](df)
 
    # Type information is lost after pandas operations
-   result = validated_df.groupby("age").mean()  # result is not DataFrame[UserSchema]
+   result = validated_df.groupby("age").mean(numeric_only=True)  # result is not DataFrame[UserSchema]
 
    # Re-validate if needed
    revalidated = DataFrame[ResultSchema](result)

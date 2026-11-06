@@ -8,6 +8,11 @@ CSV Data Validation
 
 Validate data loaded from CSV files:
 
+.. example-setup
+
+   with open("users.csv", "w") as f:
+       f.write("user_id,name,age,email\n1,Alice,30,alice@example.com\n")
+
 .. code-block:: python
 
    from typing import Protocol, Annotated
@@ -37,6 +42,8 @@ Database Query Validation
 
 Validate data from database queries:
 
+.. example-skip
+
 .. code-block:: python
 
    from typing import Protocol, Annotated, Literal
@@ -65,6 +72,8 @@ API Response Validation
 -----------------------
 
 Validate data from external APIs:
+
+.. example-skip
 
 .. code-block:: python
 
@@ -98,6 +107,11 @@ ETL Pipeline Validation
 -----------------------
 
 Validate data at different stages of an ETL pipeline:
+
+.. example-setup
+
+   with open("raw_data.csv", "w") as f:
+       f.write("id,raw_value\n1, apple \n2,banana\n")
 
 .. code-block:: python
 

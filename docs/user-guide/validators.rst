@@ -12,6 +12,12 @@ Range
 
 Validates that numeric or temporal values are within a specified range.
 
+.. example-setup
+
+   import pandas as pd
+
+   df = pd.DataFrame({"age": [30], "score": [85.5]})
+
 .. code-block:: python
 
    from typing import Annotated, Protocol
@@ -54,6 +60,10 @@ Validate one-sided numeric or temporal bounds. Use these instead of ``Range(0, f
    (for example ``Column 'name': Ge requires a numeric or temporal column, got object``) on both
    backends. A bound that cannot be compared with the column, such as ``Ge(0)`` on a datetime
    column, also raises ``ValidationError``.
+
+.. example-setup
+
+   df = pd.DataFrame({"price": [9.5], "quantity": [2], "discount": [0.1], "percentage": [None]})
 
 .. code-block:: python
 
@@ -271,6 +281,10 @@ Performance Considerations
 --------------------------
 
 Validators are only executed during runtime validation:
+
+.. example-setup
+
+   raw_df = pd.DataFrame({"score": [42]})
 
 .. code-block:: python
 

@@ -10,6 +10,12 @@ Enabling Strict Mode
 
 Pass ``strict=True`` to the DataFrame constructor:
 
+.. example-setup
+
+   import pandas as pd
+
+   df = pd.DataFrame({"user_id": [1], "name": ["Alice"]})
+
 .. code-block:: python
 
    from typing import Protocol
@@ -43,6 +49,11 @@ Strict mode is useful when:
 Example: API Data Validation
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
+.. example-setup
+
+   def fetch_from_api():
+       return {"id": [1], "timestamp": pd.to_datetime(["2024-01-01"]), "value": [1.0]}
+
 .. code-block:: python
 
    import datetime
@@ -74,6 +85,10 @@ Avoid strict mode when:
 Example: Flexible Processing
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
+.. example-setup
+
+   df = pd.DataFrame({"user_id": [1], "name": ["Alice"], "age": [30], "email": ["alice@example.com"]})
+
 .. code-block:: python
 
    class MinimalSchema(Protocol):
@@ -94,6 +109,10 @@ Combining with Validators
 --------------------------
 
 Strict mode works with validators:
+
+.. example-setup
+
+   df = pd.DataFrame({"age": [30], "score": [85.5]})
 
 .. code-block:: python
 

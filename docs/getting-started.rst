@@ -61,6 +61,11 @@ Runtime Validation
 
 Validate DataFrames at runtime, typically at system boundaries:
 
+.. example-setup
+
+   with open("users.csv", "w") as f:
+       f.write("user_id,name,age,email\n1,Alice,30,alice@example.com\n2,Bob,25,bob@example.com\n")
+
 .. code-block:: python
 
    import pandas as pd
@@ -121,7 +126,8 @@ Restrict column values to specific literals using ``Literal``:
        priority: Literal[1, 2, 3]
 
    # Only these exact values are allowed
-   validated_df = DataFrame[OrderSchema](raw_df)
+   orders_df = pd.DataFrame({"order_id": [1, 2], "status": ["pending", "approved"], "priority": [1, 3]})
+   validated_df = DataFrame[OrderSchema](orders_df)
 
 Optional Columns
 ~~~~~~~~~~~~~~~~
