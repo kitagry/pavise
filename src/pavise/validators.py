@@ -8,63 +8,70 @@ The actual validation logic is implemented in backend-specific modules:
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any
+from datetime import date, datetime, time, timedelta
+from decimal import Decimal
+from typing import Any, TypeAlias
+
+# Every bound type the backends can order a numeric or temporal column against
+Bound: TypeAlias = float | Decimal | date | datetime | time | timedelta
 
 
 @dataclass
 class Range:
-    """Validate that numeric values are within a specified range.
+    """Validate that numeric or temporal values are within a specified range.
 
     Example:
         age: Annotated[int, Range(0, 150)]
+        joined: Annotated[date, Range(date(2020, 1, 1), date(2020, 12, 31))]
     """
 
-    min: float
-    max: float
+    min: Bound
+    max: Bound
 
 
 @dataclass
 class Ge:
-    """Validate that numeric values are greater than or equal to a bound.
+    """Validate that numeric or temporal values are greater than or equal to a bound.
 
     Example:
         price: Annotated[float, Ge(0)]
+        created_at: Annotated[datetime, Ge(datetime(2020, 1, 1))]
     """
 
-    value: float
+    value: Bound
 
 
 @dataclass
 class Gt:
-    """Validate that numeric values are strictly greater than a bound.
+    """Validate that numeric or temporal values are strictly greater than a bound.
 
     Example:
         quantity: Annotated[int, Gt(0)]
     """
 
-    value: float
+    value: Bound
 
 
 @dataclass
 class Le:
-    """Validate that numeric values are less than or equal to a bound.
+    """Validate that numeric or temporal values are less than or equal to a bound.
 
     Example:
         percentage: Annotated[float, Le(100)]
     """
 
-    value: float
+    value: Bound
 
 
 @dataclass
 class Lt:
-    """Validate that numeric values are strictly less than a bound.
+    """Validate that numeric or temporal values are strictly less than a bound.
 
     Example:
         temperature: Annotated[float, Lt(1000)]
     """
 
-    value: float
+    value: Bound
 
 
 @dataclass

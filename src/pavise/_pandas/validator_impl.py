@@ -3,6 +3,7 @@
 import operator
 import re
 from collections.abc import Callable
+from datetime import date, datetime
 from typing import Any
 
 import numpy as np
@@ -126,6 +127,13 @@ def _compare(
     series: pd.Series, op: Callable[[Any, Any], Any], bound: Any, validator: Any, col_name: str
 ) -> pd.Series:
     """Compare series with a bound, reporting an incomparable bound as a ValidationError."""
+    if (
+        isinstance(bound, date)
+        and not isinstance(bound, datetime)
+        and pd.api.types.is_datetime64_any_dtype(series)
+    ):
+        # date columns are stored as datetime64, which refuses to compare with a plain date
+        bound = pd.Timestamp(bound)
     try:
         return op(series, bound)
     except TypeError as e:
