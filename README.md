@@ -148,8 +148,12 @@ class UserSchema(Protocol):
     age: int
 
 
-pandas_users = PandasDataFrame[UserSchema](pd.DataFrame({"name": ["Alice", "Bob"], "age": [30, 17]}))
-polars_users = PolarsDataFrame[UserSchema](pl.DataFrame({"name": ["Alice", "Bob"], "age": [30, 17]}))
+pandas_users = PandasDataFrame[UserSchema](
+    pd.DataFrame({"name": ["Alice", "Bob"], "age": [30, 17]})
+)
+polars_users = PolarsDataFrame[UserSchema](
+    pl.DataFrame({"name": ["Alice", "Bob"], "age": [30, 17]})
+)
 
 
 def adults(df: PolarsDataFrame[UserSchema]) -> PolarsDataFrame[UserSchema]:
