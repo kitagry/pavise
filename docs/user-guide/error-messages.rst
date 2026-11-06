@@ -13,6 +13,10 @@ When a column has the wrong type, Pavise shows:
 * Row numbers for each invalid value
 * Actual type of each invalid value
 
+If the column's dtype is rejected but every value would pass on its own (for
+example, an ``object`` column holding only ints for an ``int`` annotation), the
+error has no sample section.
+
 Example
 ~~~~~~~
 

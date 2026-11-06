@@ -61,6 +61,8 @@ class ValidationError(PaviseError):
         Formatted error message
         """
         msg = base_message
-        msg += f"\n\nSample invalid values (showing first {len(samples)} of {total_invalid}):"
-        msg += "".join([f"\n  Row {idx}: {format_value(val)}" for idx, val in samples])
+        # A dtype mismatch can reject a column whose values all pass the per-value check
+        if total_invalid > 0:
+            msg += f"\n\nSample invalid values (showing first {len(samples)} of {total_invalid}):"
+            msg += "".join([f"\n  Row {idx}: {format_value(val)}" for idx, val in samples])
         return cls(msg, column_name=col_name, invalid_samples=samples)

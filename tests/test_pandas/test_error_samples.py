@@ -115,6 +115,13 @@ class StrIndexSchema(Protocol):
             id="float-got-int64",
         ),
         pytest.param(
+            IntSchema,
+            pd.DataFrame({"v": pd.Series([1, 2], dtype=object)}),
+            "Column 'v': expected int, got object",
+            [],
+            id="int-got-object-values-pass",
+        ),
+        pytest.param(
             DateSchema,
             pd.DataFrame({"v": [date(2024, 1, 1), "x", 3]}),
             "Column 'v': expected date, got object\n\n"

@@ -108,8 +108,7 @@ class DateOrStrSchema(Protocol):
         pytest.param(
             FloatSchema,
             pl.DataFrame({"v": [1, 2]}),
-            "Column 'v': expected float, got Int64\n\n"
-            "Sample invalid values (showing first 0 of 0):",
+            "Column 'v': expected float, got Int64",
             [],
             id="float-got-int64-values-pass",
         ),
