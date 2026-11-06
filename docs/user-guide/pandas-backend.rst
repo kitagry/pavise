@@ -52,6 +52,10 @@ Python Type       pandas dtype
 ``Optional[T]``   Nullable version of T
 ================  =====================
 
+pyarrow-backed temporal columns (``dtype_backend="pyarrow"``) are accepted as well:
+``date`` accepts ``date32``/``date64`` and ``timestamp`` columns, ``datetime`` accepts
+``timestamp`` columns, and ``timedelta`` accepts ``duration`` columns.
+
 pandas ExtensionDtype
 ---------------------
 

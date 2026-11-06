@@ -19,7 +19,12 @@ from typing import (
 import numpy as np
 import pandas as pd
 
-from pavise._pandas.validator_impl import MAX_SAMPLE_SIZE, apply_validator, get_invalid_samples
+from pavise._pandas.validator_impl import (
+    MAX_SAMPLE_SIZE,
+    apply_validator,
+    get_invalid_samples,
+    is_arrow_type,
+)
 from pavise.checks import DataFrameCheck, get_dataframe_checks
 from pavise.exceptions import ValidationError
 from pavise.types import NotRequiredColumn
@@ -52,11 +57,26 @@ def type_check_date(df: pd.Series | pd.Index) -> bool:
     df = pd.Series(df)
     if pd.api.types.is_datetime64_any_dtype(df):
         return True
+    elif is_arrow_type(df, "is_date") or is_arrow_type(df, "is_timestamp"):
+        return True
     elif df.dtype == object:
         if pd.api.types.infer_dtype(df, skipna=True) in ("date", "datetime", "empty"):
             return True
         return not _invalid_value_mask(df, lambda x: isinstance(x, date), null_valid=True).any()
     return False
+
+
+def type_check_datetime(df: pd.Series | pd.Index) -> bool:
+    df = pd.Series(df)
+    # pandas 3 reports pyarrow date columns as datetime64-like, but their values are dates
+    if is_arrow_type(df, "is_date"):
+        return False
+    return pd.api.types.is_datetime64_any_dtype(df) or is_arrow_type(df, "is_timestamp")
+
+
+def type_check_timedelta(df: pd.Series | pd.Index) -> bool:
+    df = pd.Series(df)
+    return pd.api.types.is_timedelta64_dtype(df) or is_arrow_type(df, "is_duration")
 
 
 def _invalid_value_mask(
@@ -114,7 +134,7 @@ TYPE_CHECKERS = {
         value=lambda x: isinstance(x, (bool, np.bool_)) or pd.isna(x),
     ),
     datetime: TypeChecker(
-        dtype=pd.api.types.is_datetime64_any_dtype,
+        dtype=type_check_datetime,
         value=lambda x: isinstance(x, (pd.Timestamp, datetime)) or pd.isna(x),
     ),
     date: TypeChecker(
@@ -122,7 +142,7 @@ TYPE_CHECKERS = {
         value=lambda x: isinstance(x, (pd.Timestamp, datetime, date)) or pd.isna(x),
     ),
     timedelta: TypeChecker(
-        dtype=pd.api.types.is_timedelta64_dtype,
+        dtype=type_check_timedelta,
         value=lambda x: isinstance(x, (pd.Timedelta, timedelta)) or pd.isna(x),
     ),
     Any: TypeChecker(

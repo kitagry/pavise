@@ -135,7 +135,7 @@ def _require_orderable(series: pd.Series, validator: Any, col_name: str) -> None
         )
 
 
-def _is_arrow_type(series: pd.Series, predicate_name: str) -> bool:
+def is_arrow_type(series: pd.Series, predicate_name: str) -> bool:
     """Whether the series is a pd.ArrowDtype column matching the named pyarrow.types predicate."""
     # pyarrow_dtype only exists on pd.ArrowDtype (pandas 1.5+), and pyarrow is installed whenever
     # that dtype is in use, so neither has to be imported up front
@@ -149,7 +149,7 @@ def _is_arrow_type(series: pd.Series, predicate_name: str) -> bool:
 
 def _is_arrow_temporal(series: pd.Series) -> bool:
     """Whether the series is a pd.ArrowDtype column of a date, time, timestamp or duration type."""
-    return _is_arrow_type(series, "is_temporal")
+    return is_arrow_type(series, "is_temporal")
 
 
 def _compare(
@@ -163,7 +163,7 @@ def _compare(
             and pd.api.types.is_datetime64_any_dtype(series)
             # pandas 3 reports pyarrow date columns as datetime64-like, but they compare with a
             # plain date and refuse a Timestamp
-            and not _is_arrow_type(series, "is_date")
+            and not is_arrow_type(series, "is_date")
         ):
             # date columns are stored as datetime64, which refuses to compare with a plain date.
             # Converting inside the try: pandas 1.x cannot represent dates outside the

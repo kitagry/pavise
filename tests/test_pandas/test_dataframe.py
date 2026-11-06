@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, time, timedelta, timezone
 from typing import Annotated, Any, Literal, Optional, Protocol, Union, cast
 
 import pandas as pd
@@ -963,3 +963,113 @@ def test_empty_creates_empty_dataframe_with_pep604_union_types():
         }
     )
     pd.testing.assert_frame_equal(result, expected)
+
+
+class ArrowDateSchema(Protocol):
+    v: date
+
+
+class ArrowDatetimeSchema(Protocol):
+    v: datetime
+
+
+class ArrowTimedeltaSchema(Protocol):
+    v: timedelta
+
+
+class ArrowOptionalDateSchema(Protocol):
+    v: Optional[date]
+
+
+class ArrowOptionalDatetimeSchema(Protocol):
+    v: Optional[datetime]
+
+
+class ArrowOptionalTimedeltaSchema(Protocol):
+    v: Optional[timedelta]
+
+
+class ArrowIndexDateSchema(Protocol):
+    __index__: date
+
+
+class ArrowIndexDatetimeSchema(Protocol):
+    __index__: datetime
+
+
+class ArrowIndexTimedeltaSchema(Protocol):
+    __index__: timedelta
+
+
+ARROW_TEMPORAL_SCHEMAS: dict[type, tuple[type, type, type]] = {
+    date: (ArrowDateSchema, ArrowOptionalDateSchema, ArrowIndexDateSchema),
+    datetime: (ArrowDatetimeSchema, ArrowOptionalDatetimeSchema, ArrowIndexDatetimeSchema),
+    timedelta: (ArrowTimedeltaSchema, ArrowOptionalTimedeltaSchema, ArrowIndexTimedeltaSchema),
+}
+
+
+def _arrow_temporal_dtype(arrow_type: str) -> Any:
+    pa = pytest.importorskip("pyarrow")
+    if not hasattr(pd, "ArrowDtype"):
+        pytest.skip("pd.ArrowDtype requires pandas 1.5+")
+    return pd.ArrowDtype(
+        {
+            "date32": pa.date32(),
+            "date64": pa.date64(),
+            "timestamp": pa.timestamp("us"),
+            "timestamp_tz": pa.timestamp("us", tz="UTC"),
+            "time64": pa.time64("us"),
+            "duration": pa.duration("us"),
+        }[arrow_type]
+    )
+
+
+@pytest.mark.parametrize(
+    "expected_type, arrow_type, value",
+    [
+        pytest.param(date, "date32", date(2021, 1, 1), id="date-date32"),
+        pytest.param(date, "date64", date(2021, 1, 1), id="date-date64"),
+        # Matches numpy columns, where date accepts datetime64
+        pytest.param(date, "timestamp", datetime(2021, 1, 1), id="date-timestamp"),
+        pytest.param(datetime, "timestamp", datetime(2021, 1, 1), id="datetime-timestamp"),
+        pytest.param(
+            datetime,
+            "timestamp_tz",
+            datetime(2021, 1, 1, tzinfo=timezone.utc),
+            id="datetime-timestamp-tz",
+        ),
+        pytest.param(timedelta, "duration", timedelta(seconds=1), id="timedelta-duration"),
+    ],
+)
+def test_temporal_type_accepts_pyarrow_column(
+    expected_type: type, arrow_type: str, value: Any
+) -> None:
+    """pyarrow-backed temporal columns pass the matching type check, as polars temporal dtypes do"""
+    dtype = _arrow_temporal_dtype(arrow_type)
+    schema, optional_schema, index_schema = ARROW_TEMPORAL_SCHEMAS[expected_type]
+
+    DataFrame[schema](pd.DataFrame({"v": pd.array([value], dtype=dtype)}))
+    DataFrame[optional_schema](pd.DataFrame({"v": pd.array([value, None], dtype=dtype)}))
+    DataFrame[index_schema](pd.DataFrame({"v": [1]}, index=pd.Index([value], dtype=dtype)))
+
+
+@pytest.mark.parametrize(
+    "expected_type, arrow_type, value",
+    [
+        # Date values are not datetimes, which polars agrees with by rejecting Date for datetime
+        pytest.param(datetime, "date32", date(2021, 1, 1), id="datetime-date32"),
+        pytest.param(timedelta, "timestamp", datetime(2021, 1, 1), id="timedelta-timestamp"),
+        pytest.param(date, "duration", timedelta(seconds=1), id="date-duration"),
+        pytest.param(date, "time64", time(12), id="date-time64"),
+        pytest.param(datetime, "time64", time(12), id="datetime-time64"),
+    ],
+)
+def test_temporal_type_rejects_mismatched_pyarrow_column(
+    expected_type: type, arrow_type: str, value: Any
+) -> None:
+    """Only the pyarrow temporal types matching the annotation are accepted"""
+    dtype = _arrow_temporal_dtype(arrow_type)
+    schema = ARROW_TEMPORAL_SCHEMAS[expected_type][0]
+
+    with pytest.raises(ValidationError, match=f"Column 'v': expected {expected_type.__name__}"):
+        DataFrame[schema](pd.DataFrame({"v": pd.array([value], dtype=dtype)}))
