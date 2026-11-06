@@ -364,6 +364,17 @@ def test_bound_validator_accepts_date_bound_on_date_column(
     assert exc_info.value.column_name == "v"
 
 
+def test_incomparable_date_bound_reports_the_bound_as_written() -> None:
+    """The error names the user's date, not the Timestamp it was converted to"""
+
+    class Schema(Protocol):
+        v: Annotated[datetime, Ge(date(2020, 1, 1))]
+
+    df = pd.DataFrame({"v": pd.to_datetime(["2021-01-01"]).tz_localize("UTC")})
+    with pytest.raises(ValidationError, match=r"datetime\.date\(2020, 1, 1\) cannot be compared"):
+        DataFrame[Schema](df)
+
+
 def test_range_accepts_datetime_bounds() -> None:
     """Range takes datetime bounds the same way as the one-sided validators"""
 

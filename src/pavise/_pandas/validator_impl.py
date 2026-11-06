@@ -127,16 +127,18 @@ def _compare(
     series: pd.Series, op: Callable[[Any, Any], Any], bound: Any, validator: Any, col_name: str
 ) -> pd.Series:
     """Compare series with a bound, reporting an incomparable bound as a ValidationError."""
-    if (
-        isinstance(bound, date)
-        and not isinstance(bound, datetime)
-        and pd.api.types.is_datetime64_any_dtype(series)
-    ):
-        # date columns are stored as datetime64, which refuses to compare with a plain date
-        bound = pd.Timestamp(bound)
     try:
+        if (
+            isinstance(bound, date)
+            and not isinstance(bound, datetime)
+            and pd.api.types.is_datetime64_any_dtype(series)
+        ):
+            # date columns are stored as datetime64, which refuses to compare with a plain date.
+            # Converting inside the try: pandas 1.x cannot represent dates outside the
+            # nanosecond range and raises OutOfBoundsDatetime
+            return op(series, pd.Timestamp(bound))
         return op(series, bound)
-    except TypeError as e:
+    except (TypeError, pd.errors.OutOfBoundsDatetime) as e:
         raise ValidationError(
             f"{type(validator).__name__} bound {bound!r} cannot be compared with "
             f"{series.dtype} values",

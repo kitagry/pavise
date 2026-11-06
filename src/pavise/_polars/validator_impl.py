@@ -2,6 +2,7 @@
 
 import operator
 from collections.abc import Callable
+from datetime import date, datetime, time
 from typing import Any
 
 try:
@@ -104,6 +105,14 @@ def _compare(
 ) -> "pl.Series":
     """Compare series with a bound, reporting an incomparable bound as a ValidationError."""
     try:
+        if (
+            isinstance(bound, date)
+            and not isinstance(bound, datetime)
+            and series.dtype == pl.Datetime
+        ):
+            # pandas stores date and datetime columns alike as datetime64 and so accepts a date
+            # bound on a datetime column; read it as midnight here so both backends agree
+            return op(series, datetime.combine(bound, time()))
         return op(series, bound)
     except (TypeError, NotImplementedError, pl.exceptions.PolarsError) as e:
         raise ValidationError(

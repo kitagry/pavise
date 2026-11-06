@@ -373,6 +373,17 @@ def test_bound_validator_accepts_date_bound_on_date_column(
         DataFrame[Schema](pl.DataFrame({"v": [invalid]}))
 
 
+def test_bound_validator_accepts_date_bound_on_datetime_column() -> None:
+    """A date bound reads as midnight on Datetime columns, as it does on pandas datetime64"""
+
+    class Schema(Protocol):
+        v: Annotated[datetime, Ge(date(2020, 1, 1))]
+
+    DataFrame[Schema](pl.DataFrame({"v": [datetime(2020, 1, 1)]}))
+    with pytest.raises(ValidationError, match="v.*>= 2020-01-01"):
+        DataFrame[Schema](pl.DataFrame({"v": [datetime(2019, 12, 31, 23, 59)]}))
+
+
 def test_range_accepts_datetime_bounds() -> None:
     """Range takes datetime bounds the same way as the one-sided validators"""
 
