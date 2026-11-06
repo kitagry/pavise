@@ -143,6 +143,9 @@ TYPE_TO_DTYPE = {
     Any: "object",
 }
 
+# TYPE_TO_DTYPE with null-capable dtypes, used to give an all-null column the declared type
+NULLABLE_TYPE_TO_DTYPE = {**TYPE_TO_DTYPE, int: "Int64", bool: "boolean"}
+
 
 def validate_dataframe(df: pd.DataFrame, schema: type, strict: bool = False) -> None:
     """
@@ -404,6 +407,16 @@ def _check_column_exists(df: pd.DataFrame, col_name: str) -> None:
         raise ValidationError("missing", column_name=col_name)
 
 
+def _is_untyped_all_null(series: pd.Series) -> bool:
+    """
+    Whether ``series`` holds only nulls in the dtype pandas falls back to without values.
+
+    pandas cannot infer a dtype from nulls alone, so such a column is object (None) or float64
+    (NaN) whatever type it is meant to hold.
+    """
+    return series.dtype in (np.dtype(object), np.dtype(np.float64)) and bool(series.isna().all())
+
+
 def _check_column_type(df: pd.DataFrame, col_name: str, expected_type: type) -> None:
     """Check if a column has the expected type and apply validators."""
     base_type, validators, is_optional, _is_not_required = _extract_type_and_validators(
@@ -477,7 +490,11 @@ def _check_column_type(df: pd.DataFrame, col_name: str, expected_type: type) -> 
 
     if not is_optional and col_series.isna().any():
         raise ValidationError("is non-optional but contains null values", column_name=col_name)
-    if not checker.dtype(col_series):
+    if is_optional and not checker.dtype(col_series) and _is_untyped_all_null(col_series):
+        # Validators reject the fallback dtype (Range on object, Regex on float64), while
+        # nulls of the declared type are skipped by them as in any other Optional column.
+        col_series = col_series.astype(NULLABLE_TYPE_TO_DTYPE[base_type])
+    elif not checker.dtype(col_series):
         invalid_mask = _invalid_value_mask(col_series, checker.value, null_valid=True)
         samples, total_invalid = get_invalid_samples(col_series, invalid_mask)
         raise ValidationError.new_with_samples(

@@ -465,12 +465,17 @@ def _check_column_type(df: pl.DataFrame, col_name: str, expected_type: type) -> 
         raise ValidationError(f"unsupported type: {base_type}", column_name=col_name)
 
     checker = TYPE_CHECKERS[base_type]
-    col_dtype = df[col_name].dtype
+    col_series = df[col_name]
+    col_dtype = col_series.dtype
     if not checker.dtype(col_dtype):
-        _raise_type_error_with_samples(df, col_name, checker, base_type, col_dtype)
+        # polars builds an all-null column as pl.Null since it has no values to infer a dtype
+        # from. Validators reject pl.Null, while nulls of the declared type are skipped by them.
+        if not (is_optional and col_dtype == pl.Null):
+            _raise_type_error_with_samples(df, col_name, checker, base_type, col_dtype)
+        col_series = col_series.cast(TYPE_TO_DTYPE[base_type])
 
-    if not is_optional and df[col_name].null_count() > 0:
+    if not is_optional and col_series.null_count() > 0:
         raise ValidationError("is non-optional but contains null values", column_name=col_name)
 
     for validator in validators:
-        apply_validator(df[col_name], validator, col_name)
+        apply_validator(col_series, validator, col_name)

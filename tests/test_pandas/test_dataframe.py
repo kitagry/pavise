@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime, timedelta
-from typing import Annotated, Any, Literal, Optional, Protocol, Union
+from typing import Annotated, Any, Literal, Optional, Protocol, Union, cast
 
 import pandas as pd
 import pytest
@@ -9,7 +9,7 @@ import pytest
 from pavise.exceptions import ValidationError
 from pavise.pandas import DataFrame
 from pavise.types import NotRequiredColumn
-from pavise.validators import Range, Unique
+from pavise.validators import Ge, MinLen, Range, Regex, Unique
 
 
 class SimpleSchema(Protocol):
@@ -218,6 +218,70 @@ def test_dataframe_optional_type_raises_on_wrong_type():
     )
     with pytest.raises(ValidationError, match="Column 'age': expected int, got (object|str)"):
         DataFrame[OptionalSchema](df)
+
+
+ALL_NULL_BASE_TYPES = [int, float, str, bool, datetime, date, timedelta]
+
+
+def _single_column_schema(annotation: object) -> type:
+    # Built dynamically because string annotations cannot see a parametrized local type.
+    return type("AllNullSchema", (cast(type, Protocol),), {"__annotations__": {"v": annotation}})
+
+
+@pytest.mark.parametrize("base_type", ALL_NULL_BASE_TYPES)
+@pytest.mark.parametrize("null_value", [None, float("nan")])
+def test_dataframe_optional_accepts_all_null_column(base_type: type, null_value: object):
+    """An all-null column has no values to infer a dtype from, so Optional[T] accepts it"""
+    schema = _single_column_schema(Optional[base_type])
+
+    df = pd.DataFrame({"v": [null_value, null_value]})
+    result = DataFrame[schema](df)
+    pd.testing.assert_frame_equal(result, df)
+
+
+ALL_NULL_VALIDATED_TYPES = [
+    (float, Range(0, 1)),
+    (int, Ge(0)),
+    (str, Regex("a+")),
+    (str, MinLen(1)),
+]
+
+
+@pytest.mark.parametrize(("base_type", "validator"), ALL_NULL_VALIDATED_TYPES)
+@pytest.mark.parametrize("null_value", [None, float("nan")])
+def test_dataframe_optional_all_null_column_passes_validators(
+    base_type: type, validator: object, null_value: object
+):
+    """Validators see an all-null Optional column as nulls of the declared type, which they skip"""
+    schema = _single_column_schema(Annotated[Optional[base_type], validator])
+
+    df = pd.DataFrame({"v": [null_value, null_value]})
+    result = DataFrame[schema](df)
+    pd.testing.assert_frame_equal(result, df)
+
+
+def test_dataframe_non_optional_rejects_all_null_column():
+    """A non-optional column still rejects an all-null column"""
+
+    class NonOptionalSchema(Protocol):
+        v: float
+
+    df = pd.DataFrame({"v": [None, None]})
+    with pytest.raises(
+        ValidationError, match="Column 'v': is non-optional but contains null values"
+    ):
+        DataFrame[NonOptionalSchema](df)
+
+
+def test_dataframe_optional_rejects_non_null_object_column():
+    """Optional[T] still rejects a column with non-null values of the wrong type"""
+
+    class OptionalFloatSchema(Protocol):
+        v: Optional[float]
+
+    df = pd.DataFrame({"v": [None, "x"]})
+    with pytest.raises(ValidationError, match="Column 'v': expected float, got object"):
+        DataFrame[OptionalFloatSchema](df)
 
 
 def test_dataframe_pandas_categorical_dtype():
