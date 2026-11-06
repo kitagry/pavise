@@ -440,6 +440,13 @@ ARROW_TEMPORAL_BOUND_CASES = [
         datetime(2021, 1, 1),
         id="timestamp",
     ),
+    pytest.param(
+        "timestamp",
+        Ge(date(2020, 1, 1)),
+        datetime(2020, 1, 1),
+        datetime(2019, 12, 31, 23),
+        id="timestamp-date-bound",
+    ),
     pytest.param("time64", Le(time(12)), time(12), time(12, 1), id="time64"),
     pytest.param("duration", Gt(timedelta(0)), timedelta(seconds=1), timedelta(0), id="duration"),
 ]
