@@ -308,3 +308,44 @@ def test_samples_skip_na_in_nullable_mask(
         DataFrame[schema](df)
 
     assert exc_info.value.invalid_samples == samples
+
+
+@pytest.mark.parametrize(
+    ("schema", "df", "samples"),
+    [
+        pytest.param(
+            IntSchema, pd.DataFrame({"v": ["invalid"]}), [(0, "invalid")], id="type-check"
+        ),
+        pytest.param(RangeSchema, pd.DataFrame({"v": [5, 20]}), [(1, 20)], id="validator"),
+        pytest.param(LiteralSchema, pd.DataFrame({"v": ["a", "z"]}), [(1, "z")], id="literal"),
+        pytest.param(
+            RangeSchema,
+            pd.DataFrame({"v": [5, 20]}, index=pd.Index([0.5, 1.5])),
+            [(1.5, 20)],
+            id="float-index",
+        ),
+        pytest.param(
+            RangeSchema,
+            pd.DataFrame({"v": [5, 20]}, index=pd.Index(["x", "y"])),
+            [("y", 20)],
+            id="str-index",
+        ),
+        pytest.param(
+            RangeSchema,
+            pd.DataFrame({"v": [5, 20]}, index=pd.date_range("2024-01-01", periods=2)),
+            [(pd.Timestamp("2024-01-02"), 20)],
+            id="datetime-index",
+        ),
+    ],
+)
+def test_sample_row_labels_are_python_scalars(
+    schema: type, df: pd.DataFrame, samples: list[tuple[Any, Any]]
+):
+    """Row labels must not leak numpy scalars (np.int64(0)), matching the message and polars"""
+    with pytest.raises(ValidationError) as exc_info:
+        DataFrame[schema](df)
+
+    actual = exc_info.value.invalid_samples
+    assert actual == samples
+    # == alone passes for np.int64(0) == 0, so pin the label types too
+    assert [type(label) for label, _ in actual] == [type(label) for label, _ in samples]
