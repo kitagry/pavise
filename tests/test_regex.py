@@ -55,3 +55,20 @@ def test_fullmatch_pattern_search_agrees_with_re_fullmatch(
 ):
     """Searching with the anchored pattern on each backend's engine agrees with re.fullmatch"""
     assert search(fullmatch_pattern(pattern), value) == (re.fullmatch(pattern, value) is not None)
+
+
+def test_fullmatch_pattern_closes_verbose_comment():
+    assert fullmatch_pattern("(?x)a  # c") == "^(?x:a  # c\n)$"
+
+
+@pytest.mark.parametrize(
+    "pattern",
+    [
+        # Rust's regex can switch verbose mode off mid-pattern, which would make the newline literal
+        r"(?x)a(?-x)b",
+        # A trailing backslash would escape the newline and turn an invalid pattern into a valid one
+        "(?x)a\\",
+    ],
+)
+def test_fullmatch_pattern_adds_no_newline_without_trailing_comment(pattern: str):
+    assert "\n" not in fullmatch_pattern(pattern)
