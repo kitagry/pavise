@@ -23,6 +23,17 @@ The main exception raised by Pavise when DataFrame validation fails.
 Usage
 ~~~~~
 
+.. example-setup
+
+   from typing import Protocol
+
+   import pandas as pd
+
+   class Schema(Protocol):
+       age: int
+
+   raw_df = pd.DataFrame({"age": ["invalid"]})
+
 .. code-block:: python
 
    from pavise.pandas import DataFrame

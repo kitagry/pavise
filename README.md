@@ -123,6 +123,7 @@ process_user(df)  # OK - covariant type parameter
 
 Add validators using `typing.Annotated` to enforce data quality constraints:
 
+<!-- example-raises: ValidationError -->
 ```python
 from typing import Annotated, Protocol
 import pandas as pd
@@ -181,6 +182,17 @@ class OrderSchema(Protocol):
 
 Use the `@dataframe_check` class decorator to validate relationships across columns, such as `start_at < end_at` or `total == a + b`:
 
+<!-- example-setup
+import pandas as pd
+
+df = pd.DataFrame(
+    {
+        "start_at": pd.to_datetime(["2024-01-01", "2024-01-05"]),
+        "end_at": pd.to_datetime(["2024-01-02", "2024-01-03"]),
+    }
+)
+-->
+<!-- example-raises: ValidationError -->
 ```python
 from datetime import datetime
 from typing import Protocol
@@ -302,6 +314,18 @@ uv run pytest
 uv run pytest tests/test_pandas/
 uv run pytest tests/test_polars/
 ```
+
+### Documentation examples
+
+`tests/test_docs_examples.py` runs every Python code block in `README.md` and `docs/**/*.rst`.
+Blocks on the same page share one namespace, top to bottom.
+Put one of these comments right before a block when it cannot run as is (they are not rendered):
+
+| reStructuredText | Markdown | Effect |
+|------------------|----------|--------|
+| `.. example-setup` + indented code | `<!-- example-setup` ... `-->` | Hidden code run at that point (e.g. to define `df`) |
+| `.. example-raises: ValidationError` | `<!-- example-raises: ValidationError -->` | The next block must raise that exception |
+| `.. example-skip` | `<!-- example-skip -->` | Do not run the next block (e.g. it needs a database or network) |
 
 ### Testing with tox
 

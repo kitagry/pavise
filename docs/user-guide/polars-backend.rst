@@ -66,6 +66,10 @@ You can use polars data types directly:
        value: pl.Int64
        text: pl.Utf8
 
+   df = pl.DataFrame(
+       {"category": ["a", "b"], "value": [1, 2], "text": ["x", "y"]},
+       schema_overrides={"category": pl.Categorical},
+   )
    validated_df = DataFrame[Schema](df)
 
 This gives you precise control over the polars dtype.
@@ -87,6 +91,8 @@ Unlike pandas, polars types are nullable by default:
 
 For non-nullable columns, don't use Optional:
 
+.. example-raises: ValidationError
+
 .. code-block:: python
 
    class Schema(Protocol):
@@ -105,6 +111,10 @@ However, the same principles apply:
 2. Use type annotations without validation for internal functions
 3. Trust the type system after initial validation
 
+.. example-setup
+
+   raw_df = pl.DataFrame({"user_id": [1, 2], "name": ["Alice", "Bob"], "age": [25, 30]})
+
 .. code-block:: python
 
    # Validate once
@@ -120,6 +130,11 @@ LazyFrame Support
 -----------------
 
 Pavise also supports polars LazyFrame for lazy evaluation workflows:
+
+.. example-setup
+
+   with open("users.csv", "w") as f:
+       f.write("user_id,name\n1,Alice\n2,Bob\n")
 
 .. code-block:: python
 
@@ -144,6 +159,8 @@ LazyFrame validation happens in two stages:
 
 1. **On construction**: Schema-level validation (column existence and types) using ``collect_schema()``
 2. **On collect()**: Full validation including value-based validators (Range, Unique, etc.)
+
+.. example-raises: ValidationError
 
 .. code-block:: python
 
@@ -185,6 +202,18 @@ Method Chaining
 ---------------
 
 polars preserves immutability, but type information is still lost:
+
+.. example-setup
+
+   class UserSchema(Protocol):
+       user_id: int
+       age: int
+
+   class ResultSchema(Protocol):
+       age: int
+       user_id: float
+
+   df = pl.DataFrame({"user_id": [1, 2, 3], "age": [25, 30, 30]})
 
 .. code-block:: python
 

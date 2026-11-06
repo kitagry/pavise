@@ -8,6 +8,15 @@ check to the schema with the ``@dataframe_check`` class decorator.
 Basic Usage
 -----------
 
+.. example-setup
+
+   import pandas as pd
+
+   df = pd.DataFrame({
+       "start_at": pd.to_datetime(["2024-01-01", "2024-01-02"]),
+       "end_at": pd.to_datetime(["2024-01-02", "2024-01-03"]),
+   })
+
 .. code-block:: python
 
    from datetime import datetime
@@ -118,6 +127,16 @@ Inheritance and Structural Subtyping
 
 A Protocol that inherits from a decorated Protocol inherits its checks. The parent's
 checks run before the child's own checks.
+
+.. example-setup
+
+   from pavise.pandas import DataFrame
+
+   df = pd.DataFrame({
+       "start_at": pd.to_datetime(["2024-01-01"]),
+       "end_at": pd.to_datetime(["2024-01-02"]),
+       "label": ["launch"],
+   })
 
 .. code-block:: python
 
