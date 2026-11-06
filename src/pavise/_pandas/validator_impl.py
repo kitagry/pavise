@@ -95,8 +95,18 @@ def get_invalid_samples(
     positions = np.flatnonzero(invalid_mask.to_numpy(dtype=bool, na_value=False))
     # Select by position: a label lookup returns every row sharing a duplicated index label
     invalid = series.iloc[positions[:MAX_SAMPLE_SIZE]]
-    samples = [(invalid.index[pos], invalid.iloc[pos]) for pos in range(len(invalid))]
+    samples = [
+        (invalid.index[pos], _to_python_scalar(invalid.iloc[pos])) for pos in range(len(invalid))
+    ]
     return samples, len(positions)
+
+
+def _to_python_scalar(value: Any) -> Any:
+    """Unwrap numpy scalars so repr shows `2`, not numpy >= 2's `np.int64(2)`."""
+    # .item() on datetime64/timedelta64 can return a bare int (ns unit), losing the meaning
+    if isinstance(value, np.generic) and not isinstance(value, (np.datetime64, np.timedelta64)):
+        return value.item()
+    return value
 
 
 def _require_orderable(series: pd.Series, validator: Any, col_name: str) -> None:

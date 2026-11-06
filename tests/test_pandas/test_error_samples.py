@@ -13,7 +13,7 @@ import pytest
 
 from pavise.exceptions import ValidationError
 from pavise.pandas import DataFrame
-from pavise.validators import MinLen, Range
+from pavise.validators import Custom, MinLen, Range, Unique
 
 
 class StrSchema(Protocol):
@@ -64,6 +64,14 @@ class OptionalMinLenSchema(Protocol):
     v: Annotated[str | None, MinLen(3)]
 
 
+class UniqueSchema(Protocol):
+    v: Annotated[int, Unique()]
+
+
+class CustomSchema(Protocol):
+    v: Annotated[int, Custom(lambda x: x > 0, "must be positive")]
+
+
 class StrIndexSchema(Protocol):
     __index__: str
 
@@ -84,8 +92,8 @@ class StrIndexSchema(Protocol):
             pd.DataFrame({"v": np.arange(8)}),
             "Column 'v': expected str, got int64\n\n"
             "Sample invalid values (showing first 5 of 8):\n"
-            "  Row 0: np.int64(0)\n  Row 1: np.int64(1)\n  Row 2: np.int64(2)\n"
-            "  Row 3: np.int64(3)\n  Row 4: np.int64(4)",
+            "  Row 0: 0\n  Row 1: 1\n  Row 2: 2\n"
+            "  Row 3: 3\n  Row 4: 4",
             [(i, np.int64(i)) for i in range(5)],
             id="str-got-int64",
         ),
@@ -102,7 +110,7 @@ class StrIndexSchema(Protocol):
             pd.DataFrame({"v": np.arange(3)}),
             "Column 'v': expected float, got int64\n\n"
             "Sample invalid values (showing first 3 of 3):\n"
-            "  Row 0: np.int64(0)\n  Row 1: np.int64(1)\n  Row 2: np.int64(2)",
+            "  Row 0: 0\n  Row 1: 1\n  Row 2: 2",
             [(i, np.int64(i)) for i in range(3)],
             id="float-got-int64",
         ),
@@ -127,7 +135,7 @@ class StrIndexSchema(Protocol):
             pd.DataFrame({"v": [1.0, np.nan, 2.0]}),
             "Column 'v': expected int | str, got float64\n\n"
             "Sample invalid values (showing first 2 of 2):\n"
-            "  Row 0: np.float64(1.0)\n  Row 2: np.float64(2.0)",
+            "  Row 0: 1.0\n  Row 2: 2.0",
             [(0, np.float64(1.0)), (2, np.float64(2.0))],
             id="optional-union-got-float64",
         ),
@@ -136,8 +144,8 @@ class StrIndexSchema(Protocol):
             pd.DataFrame({"v": np.arange(7) * 1.5}),
             "Column 'v': expected int | str, got float64\n\n"
             "Sample invalid values (showing first 5 of 7):\n"
-            "  Row 0: np.float64(0.0)\n  Row 1: np.float64(1.5)\n  Row 2: np.float64(3.0)\n"
-            "  Row 3: np.float64(4.5)\n  Row 4: np.float64(6.0)",
+            "  Row 0: 0.0\n  Row 1: 1.5\n  Row 2: 3.0\n"
+            "  Row 3: 4.5\n  Row 4: 6.0",
             [(i, np.float64(i * 1.5)) for i in range(5)],
             id="union-got-float64-limits-samples",
         ),
@@ -174,6 +182,23 @@ class StrIndexSchema(Protocol):
             "  Row 0: -1\n  Row 1: -2\n  Row 2: -3\n  Row 3: -4\n  Row 4: -5",
             [(i, np.int64(-(i + 1))) for i in range(5)],
             id="validator-limits-samples",
+        ),
+        pytest.param(
+            UniqueSchema,
+            pd.DataFrame({"v": [1, 2, 5, 2, 5]}),
+            "Column 'v': contains duplicate values\n\n"
+            "Sample invalid values (showing first 4 of 4):\n"
+            "  Row 1: 2\n  Row 2: 5\n  Row 3: 2\n  Row 4: 5",
+            [(1, 2), (2, 5), (3, 2), (4, 5)],
+            id="unique-shows-python-scalars",
+        ),
+        pytest.param(
+            CustomSchema,
+            pd.DataFrame({"v": [1, -100, 3, 0]}),
+            "Column 'v': must be positive\n\n"
+            "Sample invalid values (showing first 2 of 2):\n  Row 1: -100\n  Row 3: 0",
+            [(1, -100), (3, 0)],
+            id="custom-shows-python-scalars",
         ),
     ],
 )

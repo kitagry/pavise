@@ -100,10 +100,10 @@ Error message example:
    ValidationError: Column 'user_id': contains duplicate values
 
    Sample invalid values (showing first 4 of 4):
-     Row 1: np.int64(2)
-     Row 2: np.int64(5)
-     Row 3: np.int64(2)
-     Row 4: np.int64(5)
+     Row 1: 2
+     Row 2: 5
+     Row 3: 2
+     Row 4: 5
 
 In
 ~~
@@ -227,9 +227,9 @@ Error message example:
    ValidationError: Column 'amount': must be positive
 
    Sample invalid values (showing first 3 of 3):
-     Row 1: np.int64(-100)
-     Row 3: np.int64(0)
-     Row 7: np.int64(-50)
+     Row 1: -100
+     Row 3: 0
+     Row 7: -50
 
 Combining Multiple Validators
 ------------------------------
