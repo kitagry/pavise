@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime, timedelta
-from typing import Annotated, Any, Literal, Optional, Protocol, Union
+from typing import Annotated, Any, Literal, Optional, Protocol, Union, cast
 
 import pytest
 
@@ -12,7 +12,7 @@ import polars as pl
 from pavise.exceptions import ValidationError
 from pavise.polars import DataFrame
 from pavise.types import NotRequiredColumn
-from pavise.validators import Range, Unique
+from pavise.validators import Ge, MinLen, Range, Regex, Unique
 
 
 class SimpleSchema(Protocol):
@@ -200,6 +200,53 @@ def test_dataframe_optional_type_raises_on_wrong_type():
     )
     with pytest.raises(ValidationError, match="Column 'age': expected int"):
         DataFrame[OptionalSchema](df)
+
+
+ALL_NULL_BASE_TYPES = [int, float, str, bool, datetime, date, timedelta]
+
+
+def _single_column_schema(annotation: object) -> type:
+    # Built dynamically because string annotations cannot see a parametrized local type.
+    return type("AllNullSchema", (cast(type, Protocol),), {"__annotations__": {"v": annotation}})
+
+
+@pytest.mark.parametrize("base_type", ALL_NULL_BASE_TYPES)
+def test_dataframe_optional_accepts_all_null_column(base_type: type):
+    """An all-null column is built as pl.Null, so Optional[T] accepts it for any base type"""
+    schema = _single_column_schema(Optional[base_type])
+
+    df = pl.DataFrame({"v": [None, None]})
+    result = DataFrame[schema](df)
+    assert result.equals(df)
+
+
+ALL_NULL_VALIDATED_TYPES = [
+    (float, Range(0, 1)),
+    (int, Ge(0)),
+    (str, Regex("a+")),
+    (str, MinLen(1)),
+]
+
+
+@pytest.mark.parametrize(("base_type", "validator"), ALL_NULL_VALIDATED_TYPES)
+def test_dataframe_optional_all_null_column_passes_validators(base_type: type, validator: object):
+    """Validators see an all-null Optional column as nulls of the declared type, which they skip"""
+    schema = _single_column_schema(Annotated[Optional[base_type], validator])
+
+    df = pl.DataFrame({"v": [None, None]})
+    result = DataFrame[schema](df)
+    assert result.equals(df)
+
+
+def test_dataframe_non_optional_rejects_all_null_column():
+    """A non-optional column still rejects an all-null column"""
+
+    class NonOptionalSchema(Protocol):
+        v: float
+
+    df = pl.DataFrame({"v": [None, None]})
+    with pytest.raises(ValidationError, match="Column 'v': expected float, got Null"):
+        DataFrame[NonOptionalSchema](df)
 
 
 class PolarsDtypeSchema(Protocol):
