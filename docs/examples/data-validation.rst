@@ -142,6 +142,7 @@ Gracefully handle validation errors in production:
 
 .. code-block:: python
 
+   import datetime
    from typing import Protocol
    from pavise.pandas import DataFrame
    from pavise.exceptions import ValidationError

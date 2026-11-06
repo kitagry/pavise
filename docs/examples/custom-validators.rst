@@ -10,6 +10,7 @@ Validate business-specific constraints:
 
 .. code-block:: python
 
+   import datetime
    from typing import Protocol, Annotated
    from pavise.exceptions import ValidationError
    from pavise.pandas import DataFrame
