@@ -23,11 +23,16 @@ try:
 except ImportError:
     raise ImportError("Polars is not installed. Install it with: pip install pavise[polars]")
 
+from pavise._polars.validator_impl import (
+    BOUND_VALIDATORS,
+    MAX_SAMPLE_SIZE,
+    apply_validator,
+    get_invalid_samples,
+    require_orderable_dtype,
+)
 from pavise.checks import DataFrameCheck, get_dataframe_checks
 from pavise.exceptions import ValidationError
 
-# Maximum number of invalid sample values to show in error messages
-MAX_SAMPLE_SIZE = 5
 # Maximum number of rows to check for type validation (performance optimization)
 MAX_CHECK_ROWS = 100
 
@@ -222,8 +227,6 @@ def _check_lazyframe_column_exists(lf_schema: pl.Schema, col_name: str) -> None:
 
 def _check_lazyframe_column_type(lf_schema: pl.Schema, col_name: str, expected_type: type) -> None:
     """Check if a column has the expected type (schema-level only, no value validation)."""
-    from pavise._polars.validator_impl import BOUND_VALIDATORS, require_orderable_dtype
-
     base_type, validators, _is_optional, _is_not_required = _extract_type_and_validators(
         expected_type
     )
@@ -364,22 +367,12 @@ def _invalid_value_mask(
     return (is_null & (not null_valid)) | (~is_null & invalid_non_null)
 
 
-def _collect_samples(series: pl.Series, invalid_mask: pl.Series) -> list[tuple[Any, Any]]:
-    """Return up to MAX_SAMPLE_SIZE (row, value) pairs where ``invalid_mask`` is set."""
-    invalid_df = series.to_frame().with_row_index("__row__").filter(invalid_mask)
-    return [
-        (row["__row__"], row[series.name])
-        for row in invalid_df.head(MAX_SAMPLE_SIZE).iter_rows(named=True)
-    ]
-
-
 def _raise_type_error_with_samples(
     df: pl.DataFrame, col_name: str, checker: TypeChecker, expected_type: type, actual_dtype: Any
 ) -> None:
     """Raise TypeError with sample invalid values."""
     invalid_mask = _invalid_value_mask(df[col_name], checker.value, null_valid=True)
-    samples = _collect_samples(df[col_name], invalid_mask)
-    total_invalid = int(invalid_mask.sum())
+    samples, total_invalid = get_invalid_samples(df[col_name], invalid_mask)
 
     raise ValidationError.new_with_samples(
         col_name,
@@ -397,8 +390,6 @@ def _check_column_exists(df: pl.DataFrame, col_name: str) -> None:
 
 def _check_column_type(df: pl.DataFrame, col_name: str, expected_type: type) -> None:
     """Check if a column has the expected type and apply validators."""
-    from pavise._polars.validator_impl import apply_validator
-
     base_type, validators, is_optional, _is_not_required = _extract_type_and_validators(
         expected_type
     )
@@ -418,8 +409,7 @@ def _check_column_type(df: pl.DataFrame, col_name: str, expected_type: type) -> 
         allowed_values = get_args(base_type)
         invalid_mask = ~df[col_name].is_in(allowed_values)
         if invalid_mask.any():
-            samples = _collect_samples(df[col_name], invalid_mask)
-            total_invalid = int(invalid_mask.sum())
+            samples, total_invalid = get_invalid_samples(df[col_name], invalid_mask)
             raise ValidationError.new_with_samples(
                 col_name,
                 f"expected one of {allowed_values}, got invalid values",
@@ -446,8 +436,7 @@ def _check_column_type(df: pl.DataFrame, col_name: str, expected_type: type) -> 
             null_valid=is_optional,
         )
         if invalid_mask.any():
-            samples = _collect_samples(df[col_name], invalid_mask)
-            total_invalid = int(invalid_mask.sum())
+            samples, total_invalid = get_invalid_samples(df[col_name], invalid_mask)
             union_type_names = " | ".join(t.__name__ for t in base_type)
             raise ValidationError.new_with_samples(
                 col_name,

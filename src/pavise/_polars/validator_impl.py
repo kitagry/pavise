@@ -62,7 +62,7 @@ def apply_validator(series: "pl.Series", validator: Any, col_name: str) -> None:
         raise ValidationError(f"Unknown validator type: {type(validator)}")
 
 
-def _get_invalid_samples(
+def get_invalid_samples(
     series: "pl.Series", invalid_mask: "pl.Series"
 ) -> tuple[list[tuple[Any, Any]], int]:
     """
@@ -121,7 +121,7 @@ def _validate_range(series: "pl.Series", validator: Range, col_name: str) -> Non
     if not invalid_mask.any():
         return
 
-    samples, total_invalid = _get_invalid_samples(series, invalid_mask)
+    samples, total_invalid = get_invalid_samples(series, invalid_mask)
     raise ValidationError.new_with_samples(
         col_name,
         f"values must be in range [{validator.min}, {validator.max}]",
@@ -143,7 +143,7 @@ def _validate_comparison(series: "pl.Series", validator: Ge | Gt | Le | Lt, col_
     if not invalid_mask.any():
         return
 
-    samples, total_invalid = _get_invalid_samples(series, invalid_mask)
+    samples, total_invalid = get_invalid_samples(series, invalid_mask)
     raise ValidationError.new_with_samples(
         col_name,
         f"values must be {symbol} {validator.value}",
@@ -159,7 +159,7 @@ def _validate_unique(series: "pl.Series", col_name: str) -> None:
     if not duplicated_mask.any():
         return
 
-    samples, total_invalid = _get_invalid_samples(series, duplicated_mask)
+    samples, total_invalid = get_invalid_samples(series, duplicated_mask)
     raise ValidationError.new_with_samples(
         col_name,
         "contains duplicate values",
@@ -175,7 +175,7 @@ def _validate_in(series: "pl.Series", validator: In, col_name: str) -> None:
     if not invalid_mask.any():
         return
 
-    samples, total_invalid = _get_invalid_samples(series, invalid_mask)
+    samples, total_invalid = get_invalid_samples(series, invalid_mask)
     raise ValidationError.new_with_samples(
         col_name, "contains values not in allowed values", samples, total_invalid
     )
@@ -193,7 +193,7 @@ def _validate_regex(series: "pl.Series", validator: Regex, col_name: str) -> Non
     if not invalid_mask.any():
         return
 
-    samples, total_invalid = _get_invalid_samples(series, invalid_mask)
+    samples, total_invalid = get_invalid_samples(series, invalid_mask)
     raise ValidationError.new_with_samples(
         col_name, "contains values that don't match the pattern", samples, total_invalid
     )
@@ -205,7 +205,7 @@ def _validate_minlen(series: "pl.Series", validator: MinLen, col_name: str) -> N
     if not invalid_mask.any():
         return
 
-    samples, total_invalid = _get_invalid_samples(series, invalid_mask)
+    samples, total_invalid = get_invalid_samples(series, invalid_mask)
     raise ValidationError.new_with_samples(
         col_name,
         "contains strings shorter than minimum length",
@@ -221,7 +221,7 @@ def _validate_maxlen(series: "pl.Series", validator: MaxLen, col_name: str) -> N
     if not invalid_mask.any():
         return
 
-    samples, total_invalid = _get_invalid_samples(series, invalid_mask)
+    samples, total_invalid = get_invalid_samples(series, invalid_mask)
     raise ValidationError.new_with_samples(
         col_name,
         "contains strings longer than maximum length",
@@ -237,5 +237,5 @@ def _validate_custom(series: "pl.Series", validator: Custom, col_name: str) -> N
     if not invalid_mask.any():
         return
 
-    samples, total_invalid = _get_invalid_samples(series, invalid_mask)
+    samples, total_invalid = get_invalid_samples(series, invalid_mask)
     raise ValidationError.new_with_samples(col_name, validator.message, samples, total_invalid)
