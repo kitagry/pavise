@@ -12,7 +12,7 @@ Describe your columns once with <code>typing.Protocol</code>, and get static typ
   <a href="https://pypi.org/project/pavise/"><img alt="Python versions" src="https://img.shields.io/pypi/pyversions/pavise?logo=python&logoColor=white"></a>
   <a href="https://github.com/kitagry/pavise/actions/workflows/test.yml"><img alt="Tests" src="https://github.com/kitagry/pavise/actions/workflows/test.yml/badge.svg?branch=main"></a>
   <a href="https://pavise.readthedocs.io/en/latest/?badge=latest"><img alt="Documentation Status" src="https://readthedocs.org/projects/pavise/badge/?version=latest"></a>
-  <a href="https://pypi.org/project/pavise/"><img alt="License" src="https://img.shields.io/pypi/l/pavise"></a>
+  <a href="./LICENSE"><img alt="License" src="https://img.shields.io/github/license/kitagry/pavise"></a>
 </p>
 
 <p>
