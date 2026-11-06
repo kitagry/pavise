@@ -1,4 +1,5 @@
-from datetime import datetime
+from collections.abc import Callable
+from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 from typing import Annotated, Any, Protocol
 
@@ -322,12 +323,100 @@ def test_bound_validator_accepts_datetime_column() -> None:
     """Datetime columns are orderable, so datetime bounds keep working"""
 
     class Schema(Protocol):
-        # Bounds are annotated as float until #30 widens them; datetime works at runtime
-        v: Annotated[datetime, Ge(datetime(2020, 1, 1))]  # pyright: ignore[reportArgumentType]
+        v: Annotated[datetime, Ge(datetime(2020, 1, 1))]
 
     DataFrame[Schema](pd.DataFrame({"v": [datetime(2021, 1, 1)]}))
     with pytest.raises(ValidationError, match="v.*>= 2020-01-01"):
         DataFrame[Schema](pd.DataFrame({"v": [datetime(2019, 1, 1)]}))
+
+
+DATE_BOUND_CASES = [
+    pytest.param(
+        Range(date(2020, 1, 1), date(2020, 12, 31)), date(2020, 6, 1), date(2021, 1, 1), id="Range"
+    ),
+    pytest.param(Ge(date(2020, 1, 1)), date(2020, 1, 1), date(2019, 12, 31), id="Ge"),
+    pytest.param(Gt(date(2020, 1, 1)), date(2020, 1, 2), date(2020, 1, 1), id="Gt"),
+    pytest.param(Le(date(2020, 1, 1)), date(2020, 1, 1), date(2020, 1, 2), id="Le"),
+    pytest.param(Lt(date(2020, 1, 1)), date(2019, 12, 31), date(2020, 1, 1), id="Lt"),
+]
+
+
+@pytest.mark.parametrize("validator, valid, invalid", DATE_BOUND_CASES)
+@pytest.mark.parametrize(
+    "to_series",
+    [
+        pytest.param(lambda d: pd.Series([d], dtype=object), id="object"),
+        # date columns are coerced to datetime64[ns], so a date bound must compare with Timestamps
+        pytest.param(lambda d: pd.Series(pd.to_datetime([d])), id="datetime64"),
+    ],
+)
+def test_bound_validator_accepts_date_bound_on_date_column(
+    validator: Any, valid: date, invalid: date, to_series: Callable[[date], pd.Series]
+) -> None:
+    """date bounds apply to date columns whichever storage pandas uses for them"""
+
+    class Schema(Protocol):
+        v: Annotated[date, validator]
+
+    DataFrame[Schema](pd.DataFrame({"v": to_series(valid)}))
+    with pytest.raises(ValidationError) as exc_info:
+        DataFrame[Schema](pd.DataFrame({"v": to_series(invalid)}))
+    assert exc_info.value.column_name == "v"
+
+
+def test_incomparable_date_bound_reports_the_bound_as_written() -> None:
+    """The error names the user's date, not the Timestamp it was converted to"""
+
+    class Schema(Protocol):
+        v: Annotated[datetime, Ge(date(2020, 1, 1))]
+
+    df = pd.DataFrame({"v": pd.to_datetime(["2021-01-01"]).tz_localize("UTC")})
+    with pytest.raises(ValidationError, match=r"datetime\.date\(2020, 1, 1\) cannot be compared"):
+        DataFrame[Schema](df)
+
+
+def test_range_accepts_datetime_bounds() -> None:
+    """Range takes datetime bounds the same way as the one-sided validators"""
+
+    class Schema(Protocol):
+        v: Annotated[datetime, Range(datetime(2020, 1, 1), datetime(2020, 12, 31))]
+
+    DataFrame[Schema](pd.DataFrame({"v": [datetime(2020, 6, 1)]}))
+    with pytest.raises(ValidationError, match="v.*in range \\[2020-01-01 00:00:00, 2020-12-31"):
+        DataFrame[Schema](pd.DataFrame({"v": [datetime(2021, 1, 1)]}))
+
+
+def test_bound_validator_accepts_decimal_bounds() -> None:
+    """Decimal bounds compare exactly against Decimal values"""
+
+    class Schema(Protocol):
+        v: Annotated[Any, Range(Decimal("0.1"), Decimal("0.3"))]
+
+    DataFrame[Schema](pd.DataFrame({"v": [Decimal("0.1"), Decimal("0.3")]}))
+    with pytest.raises(ValidationError, match="v.*in range \\[0.1, 0.3\\]"):
+        DataFrame[Schema](pd.DataFrame({"v": [Decimal("0.30001")]}))
+
+
+def test_bound_validator_accepts_timedelta_bound() -> None:
+    """timedelta bounds apply to timedelta columns"""
+
+    class Schema(Protocol):
+        v: Annotated[timedelta, Lt(timedelta(hours=1))]
+
+    DataFrame[Schema](pd.DataFrame({"v": [timedelta(minutes=59)]}))
+    with pytest.raises(ValidationError, match="v.*< 1:00:00"):
+        DataFrame[Schema](pd.DataFrame({"v": [timedelta(hours=1)]}))
+
+
+def test_bound_validator_accepts_time_bound() -> None:
+    """time bounds apply to time-of-day values"""
+
+    class Schema(Protocol):
+        v: Annotated[Any, Lt(time(12))]
+
+    DataFrame[Schema](pd.DataFrame({"v": [time(11, 59)]}))
+    with pytest.raises(ValidationError, match="v.*< 12:00:00"):
+        DataFrame[Schema](pd.DataFrame({"v": [time(12)]}))
 
 
 def test_bound_validator_accepts_object_decimal_column() -> None:

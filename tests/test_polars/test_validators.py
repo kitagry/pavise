@@ -1,4 +1,5 @@
-from datetime import datetime
+from datetime import date, datetime, time, timedelta
+from decimal import Decimal
 from typing import Annotated, Any, Protocol
 
 import polars as pl
@@ -337,12 +338,94 @@ def test_bound_validator_accepts_datetime_column() -> None:
     """Datetime columns are orderable, so datetime bounds keep working"""
 
     class Schema(Protocol):
-        # Bounds are annotated as float until #30 widens them; datetime works at runtime
-        v: Annotated[datetime, Ge(datetime(2020, 1, 1))]  # pyright: ignore[reportArgumentType]
+        v: Annotated[datetime, Ge(datetime(2020, 1, 1))]
 
     DataFrame[Schema](pl.DataFrame({"v": [datetime(2021, 1, 1)]}))
     with pytest.raises(ValidationError, match="v.*>= 2020-01-01"):
         DataFrame[Schema](pl.DataFrame({"v": [datetime(2019, 1, 1)]}))
+
+
+@pytest.mark.parametrize(
+    "validator, valid, invalid",
+    [
+        pytest.param(
+            Range(date(2020, 1, 1), date(2020, 12, 31)),
+            date(2020, 6, 1),
+            date(2021, 1, 1),
+            id="Range",
+        ),
+        pytest.param(Ge(date(2020, 1, 1)), date(2020, 1, 1), date(2019, 12, 31), id="Ge"),
+        pytest.param(Gt(date(2020, 1, 1)), date(2020, 1, 2), date(2020, 1, 1), id="Gt"),
+        pytest.param(Le(date(2020, 1, 1)), date(2020, 1, 1), date(2020, 1, 2), id="Le"),
+        pytest.param(Lt(date(2020, 1, 1)), date(2019, 12, 31), date(2020, 1, 1), id="Lt"),
+    ],
+)
+def test_bound_validator_accepts_date_bound_on_date_column(
+    validator: Any, valid: date, invalid: date
+) -> None:
+    """date bounds apply to Date columns"""
+
+    class Schema(Protocol):
+        v: Annotated[date, validator]
+
+    DataFrame[Schema](pl.DataFrame({"v": [valid]}))
+    with pytest.raises(ValidationError, match=f"Row 0: {invalid}"):
+        DataFrame[Schema](pl.DataFrame({"v": [invalid]}))
+
+
+def test_bound_validator_accepts_date_bound_on_datetime_column() -> None:
+    """A date bound reads as midnight on Datetime columns, as it does on pandas datetime64"""
+
+    class Schema(Protocol):
+        v: Annotated[datetime, Ge(date(2020, 1, 1))]
+
+    DataFrame[Schema](pl.DataFrame({"v": [datetime(2020, 1, 1)]}))
+    with pytest.raises(ValidationError, match="v.*>= 2020-01-01"):
+        DataFrame[Schema](pl.DataFrame({"v": [datetime(2019, 12, 31, 23, 59)]}))
+
+
+def test_range_accepts_datetime_bounds() -> None:
+    """Range takes datetime bounds the same way as the one-sided validators"""
+
+    class Schema(Protocol):
+        v: Annotated[datetime, Range(datetime(2020, 1, 1), datetime(2020, 12, 31))]
+
+    DataFrame[Schema](pl.DataFrame({"v": [datetime(2020, 6, 1)]}))
+    with pytest.raises(ValidationError, match="v.*in range \\[2020-01-01 00:00:00, 2020-12-31"):
+        DataFrame[Schema](pl.DataFrame({"v": [datetime(2021, 1, 1)]}))
+
+
+def test_bound_validator_accepts_decimal_bounds() -> None:
+    """Decimal bounds compare exactly against Decimal values"""
+
+    class Schema(Protocol):
+        v: Annotated[Any, Range(Decimal("0.1"), Decimal("0.3"))]
+
+    DataFrame[Schema](pl.DataFrame({"v": [Decimal("0.1"), Decimal("0.3")]}))
+    with pytest.raises(ValidationError, match="v.*in range \\[0.1, 0.3\\]"):
+        DataFrame[Schema](pl.DataFrame({"v": [Decimal("0.30001")]}))
+
+
+def test_bound_validator_accepts_timedelta_bound() -> None:
+    """timedelta bounds apply to Duration columns"""
+
+    class Schema(Protocol):
+        v: Annotated[timedelta, Lt(timedelta(hours=1))]
+
+    DataFrame[Schema](pl.DataFrame({"v": [timedelta(minutes=59)]}))
+    with pytest.raises(ValidationError, match="v.*< 1:00:00"):
+        DataFrame[Schema](pl.DataFrame({"v": [timedelta(hours=1)]}))
+
+
+def test_bound_validator_accepts_time_bound() -> None:
+    """time bounds apply to time-of-day values"""
+
+    class Schema(Protocol):
+        v: Annotated[Any, Lt(time(12))]
+
+    DataFrame[Schema](pl.DataFrame({"v": [time(11, 59)]}))
+    with pytest.raises(ValidationError, match="v.*< 12:00:00"):
+        DataFrame[Schema](pl.DataFrame({"v": [time(12)]}))
 
 
 def test_bound_validator_rejects_incomparable_bound() -> None:

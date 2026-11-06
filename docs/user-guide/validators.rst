@@ -10,7 +10,7 @@ Available Validators
 Range
 ~~~~~
 
-Validates that numeric values are within a specified range.
+Validates that numeric or temporal values are within a specified range.
 
 .. code-block:: python
 
@@ -38,7 +38,7 @@ Error message example:
 Ge / Gt / Le / Lt
 ~~~~~~~~~~~~~~~~~
 
-Validate one-sided numeric bounds. Use these instead of ``Range(0, float("inf"))``.
+Validate one-sided numeric or temporal bounds. Use these instead of ``Range(0, float("inf"))``.
 
 - ``Ge(value)``: values must be greater than or equal to ``value``
 - ``Gt(value)``: values must be strictly greater than ``value``
@@ -67,6 +67,21 @@ Validate one-sided numeric bounds. Use these instead of ``Range(0, float("inf"))
        percentage: Annotated[Optional[float], Le(100)]
 
    validated_df = DataFrame[Schema](df)
+
+Bounds can be ``int``, ``float``, ``Decimal``, ``date``, ``datetime``, ``time`` or ``timedelta``,
+so timestamp and decimal columns type-check as well:
+
+.. code-block:: python
+
+   from datetime import date, datetime
+   from decimal import Decimal
+   from typing import Annotated, Any, Protocol
+   from pavise.validators import Ge, Range
+
+   class Schema(Protocol):
+       created_at: Annotated[datetime, Ge(datetime(2020, 1, 1))]
+       birthday: Annotated[date, Range(date(1900, 1, 1), date(2025, 12, 31))]
+       rate: Annotated[Any, Range(Decimal("0"), Decimal("1"))]
 
 As with ``Range``, null values in ``Optional`` columns are not checked.
 
