@@ -328,6 +328,48 @@ def test_dataframe_with_literal_type_raises_error_for_wrong_type():
         DataFrame[LiteralSchema](df)
 
 
+class OptionalLiteralSchema(Protocol):
+    status: Optional[Literal["pending", "approved"]]
+
+
+class LiteralWithNoneSchema(Protocol):
+    status: Literal["pending", None]
+
+
+def test_dataframe_optional_literal_accepts_null_values():
+    """An Optional Literal column accepts nulls alongside allowed values"""
+    df = pl.DataFrame({"status": ["pending", None, "approved"]})
+    DataFrame[OptionalLiteralSchema](df)
+
+
+def test_dataframe_optional_literal_accepts_all_null_column():
+    """An Optional Literal column accepts a column holding only nulls"""
+    df = pl.DataFrame({"status": [None, None]})
+    DataFrame[OptionalLiteralSchema](df)
+
+
+def test_dataframe_optional_literal_rejects_invalid_values():
+    """An Optional Literal column still rejects values outside the Literal"""
+    df = pl.DataFrame({"status": ["pending", None, "invalid"]})
+    with pytest.raises(ValidationError, match="expected one of"):
+        DataFrame[OptionalLiteralSchema](df)
+
+
+def test_dataframe_non_optional_literal_rejects_null_values():
+    """A non-optional Literal column reports nulls as a non-optional error"""
+    df = pl.DataFrame({"status": ["pending", None], "priority": [1, 2]})
+    with pytest.raises(
+        ValidationError, match="Column 'status': is non-optional but contains null values"
+    ):
+        DataFrame[LiteralSchema](df)
+
+
+def test_dataframe_literal_with_none_accepts_null_values():
+    """A Literal listing None accepts nulls without Optional"""
+    df = pl.DataFrame({"status": ["pending", None]})
+    DataFrame[LiteralWithNoneSchema](df)
+
+
 def test_dataframe_with_notrequired_missing_column():
     """DataFrame[Schema] with NotRequired passes when optional column is missing"""
     df = pl.DataFrame({"user_id": [1, 2, 3], "name": ["Alice", "Bob", "Charlie"]})

@@ -407,6 +407,9 @@ def _check_column_type(df: pl.DataFrame, col_name: str, expected_type: type) -> 
 
     if get_origin(base_type) is Literal:
         allowed_values = get_args(base_type)
+        if not is_optional and None not in allowed_values and df[col_name].null_count() > 0:
+            raise ValidationError("is non-optional but contains null values", column_name=col_name)
+        # is_in propagates nulls, so nulls never count as invalid values here
         invalid_mask = ~df[col_name].is_in(allowed_values)
         if invalid_mask.any():
             samples, total_invalid = get_invalid_samples(df[col_name], invalid_mask)

@@ -439,7 +439,11 @@ def _check_column_type(df: pd.DataFrame, col_name: str, expected_type: type) -> 
 
     if get_origin(base_type) is Literal:
         allowed_values = get_args(base_type)
-        invalid_mask = ~col_series.isin(allowed_values)
+        null_mask = col_series.isna()
+        if not is_optional and None not in allowed_values and null_mask.any():
+            raise ValidationError("is non-optional but contains null values", column_name=col_name)
+        # isin flags nulls as not allowed, while whether nulls are allowed is decided above
+        invalid_mask = ~col_series.isin(allowed_values) & ~null_mask
         if invalid_mask.any():
             samples, total_invalid = get_invalid_samples(col_series, invalid_mask)
             raise ValidationError.new_with_samples(
