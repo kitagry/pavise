@@ -190,3 +190,28 @@ def test_samples_are_positional_with_repeated_values(
         DataFrame[schema](df)
 
     assert exc_info.value.invalid_samples == samples
+
+
+def test_get_invalid_samples_caps_samples_and_counts_all():
+    """Type checks and validators share one helper; it caps samples but counts every row"""
+    from pavise._polars.validator_impl import MAX_SAMPLE_SIZE, get_invalid_samples
+
+    series = pl.Series("v", list(range(10)))
+    invalid_mask = pl.Series([True] * 8 + [False] * 2)
+
+    samples, total_invalid = get_invalid_samples(series, invalid_mask)
+
+    assert samples == [(i, i) for i in range(MAX_SAMPLE_SIZE)]
+    assert total_invalid == 8
+
+
+def test_get_invalid_samples_treats_null_mask_as_valid():
+    from pavise._polars.validator_impl import get_invalid_samples
+
+    series = pl.Series("v", [1, 2, 3])
+    invalid_mask = pl.Series([None, True, False], dtype=pl.Boolean)
+
+    samples, total_invalid = get_invalid_samples(series, invalid_mask)
+
+    assert samples == [(1, 2)]
+    assert total_invalid == 1
