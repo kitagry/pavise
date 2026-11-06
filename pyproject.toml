@@ -1,5 +1,5 @@
 [build-system]
-requires = ["hatchling", "uv-dynamic-versioning"]
+requires = ["hatchling>=1.27.0", "uv-dynamic-versioning"]
 build-backend = "hatchling.build"
 
 [project]
@@ -7,7 +7,8 @@ name = "pavise"
 description = "DataFrame validation library using Python Protocol for structural subtyping"
 readme = "README.md"
 requires-python = ">=3.10"
-license = {text = "MIT"}
+license = "MIT"
+license-files = ["LICENSE"]
 authors = [
     {name = "kitagry"},
 ]
