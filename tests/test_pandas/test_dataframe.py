@@ -280,7 +280,7 @@ def test_dataframe_optional_rejects_non_null_object_column():
         v: Optional[float]
 
     df = pd.DataFrame({"v": [None, "x"]})
-    with pytest.raises(ValidationError, match="Column 'v': expected float, got object"):
+    with pytest.raises(ValidationError, match="Column 'v': expected float, got (object|str)"):
         DataFrame[OptionalFloatSchema](df)
 
 
