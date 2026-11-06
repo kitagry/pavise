@@ -1,5 +1,5 @@
 from collections.abc import Callable
-from datetime import date, datetime, time, timedelta
+from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal
 from typing import Annotated, Any, Protocol
 
@@ -428,6 +428,86 @@ def test_bound_validator_accepts_object_decimal_column() -> None:
     DataFrame[Schema](pd.DataFrame({"v": [Decimal("1.5")]}))
     with pytest.raises(ValidationError, match="v.*>= 0"):
         DataFrame[Schema](pd.DataFrame({"v": [Decimal("-1.5")]}))
+
+
+ARROW_TEMPORAL_BOUND_CASES = [
+    pytest.param("date32", Ge(date(2020, 1, 1)), date(2020, 1, 1), date(2019, 12, 31), id="date32"),
+    pytest.param("date64", Lt(date(2020, 1, 1)), date(2019, 12, 31), date(2020, 1, 1), id="date64"),
+    pytest.param(
+        "timestamp",
+        Range(datetime(2020, 1, 1), datetime(2020, 12, 31)),
+        datetime(2020, 6, 1),
+        datetime(2021, 1, 1),
+        id="timestamp",
+    ),
+    pytest.param(
+        "timestamp",
+        Ge(date(2020, 1, 1)),
+        datetime(2020, 1, 1),
+        datetime(2019, 12, 31, 23),
+        id="timestamp-date-bound",
+    ),
+    pytest.param("time64", Le(time(12)), time(12), time(12, 1), id="time64"),
+    pytest.param("duration", Gt(timedelta(0)), timedelta(seconds=1), timedelta(0), id="duration"),
+]
+
+
+@pytest.mark.parametrize("arrow_type, validator, valid, invalid", ARROW_TEMPORAL_BOUND_CASES)
+def test_bound_validator_accepts_pyarrow_temporal_column(
+    arrow_type: str, validator: Any, valid: Any, invalid: Any
+) -> None:
+    """pyarrow-backed temporal columns are orderable, matching polars temporal dtypes"""
+    pa = pytest.importorskip("pyarrow")
+    if not hasattr(pd, "ArrowDtype"):
+        pytest.skip("pd.ArrowDtype requires pandas 1.5+")
+    dtype = pd.ArrowDtype(
+        {
+            "date32": pa.date32(),
+            "date64": pa.date64(),
+            "timestamp": pa.timestamp("us"),
+            "time64": pa.time64("us"),
+            "duration": pa.duration("us"),
+        }[arrow_type]
+    )
+
+    class Schema(Protocol):
+        v: Annotated[Any | None, validator]
+
+    DataFrame[Schema](pd.DataFrame({"v": pd.array([valid, None], dtype=dtype)}))
+    with pytest.raises(ValidationError) as exc_info:
+        DataFrame[Schema](pd.DataFrame({"v": pd.array([invalid], dtype=dtype)}))
+    assert exc_info.value.column_name == "v"
+    assert "requires a numeric or temporal column" not in str(exc_info.value)
+
+
+def test_incomparable_bound_on_pyarrow_timestamp_column() -> None:
+    """A tz-aware bound on a naive pyarrow timestamp column is a ValidationError, not TypeError"""
+    pa = pytest.importorskip("pyarrow")
+    if not hasattr(pd, "ArrowDtype"):
+        pytest.skip("pd.ArrowDtype requires pandas 1.5+")
+
+    class Schema(Protocol):
+        v: Annotated[Any, Ge(datetime(2020, 1, 1, tzinfo=timezone.utc))]
+
+    df = pd.DataFrame(
+        {"v": pd.array([datetime(2021, 1, 1)], dtype=pd.ArrowDtype(pa.timestamp("us")))}
+    )
+    with pytest.raises(ValidationError, match="v.*Ge bound .* cannot be compared"):
+        DataFrame[Schema](df)
+
+
+def test_bound_validator_rejects_pyarrow_non_temporal_column() -> None:
+    """Only temporal pyarrow types are let through; strings are still rejected"""
+    pa = pytest.importorskip("pyarrow")
+    if not hasattr(pd, "ArrowDtype"):
+        pytest.skip("pd.ArrowDtype requires pandas 1.5+")
+
+    class Schema(Protocol):
+        v: Annotated[Any, Ge(0)]
+
+    df = pd.DataFrame({"v": pd.array(["a"], dtype=pd.ArrowDtype(pa.string()))})
+    with pytest.raises(ValidationError, match="v.*Ge requires a numeric or temporal column"):
+        DataFrame[Schema](df)
 
 
 def test_bound_validator_rejects_incomparable_bound() -> None:
