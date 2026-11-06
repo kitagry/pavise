@@ -48,7 +48,8 @@ Validate one-sided numeric or temporal bounds. Use these instead of ``Range(0, f
 .. note::
 
    ``Range``, ``Ge``, ``Gt``, ``Le`` and ``Lt`` require a numeric (integer, float, Decimal) or
-   temporal (date, datetime, timedelta) column. Applying them to any other column, including
+   temporal (date, datetime, timedelta) column. On pandas, pyarrow-backed temporal columns such
+   as ``date32[pyarrow]`` and ``timestamp[us][pyarrow]`` count as temporal. Applying them to any other column, including
    ``bool`` and string columns, raises ``ValidationError``
    (for example ``Column 'name': Ge requires a numeric or temporal column, got object``) on both
    backends. A bound that cannot be compared with the column, such as ``Ge(0)`` on a datetime

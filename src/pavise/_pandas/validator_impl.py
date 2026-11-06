@@ -121,6 +121,8 @@ def _require_orderable(series: pd.Series, validator: Any, col_name: str) -> None
         or pd.api.types.is_timedelta64_dtype(series)
     ):
         orderable = True
+    elif _is_arrow_temporal(series):
+        orderable = True
     elif series.dtype == object:
         # Any-typed or Decimal columns land in object dtype; polars accepts the equivalent dtypes
         orderable = pd.api.types.infer_dtype(series, skipna=True) in _ORDERABLE_OBJECT_KINDS
@@ -131,6 +133,18 @@ def _require_orderable(series: pd.Series, validator: Any, col_name: str) -> None
             f"{type(validator).__name__} requires a numeric or temporal column, got {series.dtype}",
             column_name=col_name,
         )
+
+
+def _is_arrow_temporal(series: pd.Series) -> bool:
+    """Whether the series is a pd.ArrowDtype column of a date, time, timestamp or duration type."""
+    # pyarrow_dtype only exists on pd.ArrowDtype (pandas 1.5+), and pyarrow is installed whenever
+    # that dtype is in use, so neither has to be imported up front
+    arrow_type = getattr(series.dtype, "pyarrow_dtype", None)
+    if arrow_type is None:
+        return False
+    import pyarrow as pa
+
+    return pa.types.is_temporal(arrow_type)
 
 
 def _compare(
