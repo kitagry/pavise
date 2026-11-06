@@ -45,6 +45,7 @@ Example: API Data Validation
 
 .. code-block:: python
 
+   import datetime
    from typing import Protocol
    from pavise.pandas import DataFrame
    import pandas as pd

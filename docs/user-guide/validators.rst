@@ -208,6 +208,8 @@ Create custom validators for business-specific logic.
 
 .. code-block:: python
 
+   import datetime
+
    from pavise.validators import Custom
 
    def is_positive(value) -> bool:
