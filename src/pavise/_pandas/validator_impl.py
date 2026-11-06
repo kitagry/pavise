@@ -97,7 +97,8 @@ def get_invalid_samples(
     # Select by position: a label lookup returns every row sharing a duplicated index label
     invalid = series.iloc[positions[:MAX_SAMPLE_SIZE]]
     samples = [
-        (invalid.index[pos], _to_python_scalar(invalid.iloc[pos])) for pos in range(len(invalid))
+        (_to_python_scalar(invalid.index[pos]), _to_python_scalar(invalid.iloc[pos]))
+        for pos in range(len(invalid))
     ]
     return samples, len(positions)
 
