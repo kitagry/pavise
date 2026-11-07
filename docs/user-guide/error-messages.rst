@@ -11,11 +11,10 @@ When a column has the wrong type, Pavise shows:
 * Expected type and actual type
 * Sample invalid values (first 5 maximum)
 * Row numbers for each invalid value
-* Actual type of each invalid value
 
 If the column's dtype is rejected but every value would pass on its own (for
 example, an ``object`` column holding only ints for an ``int`` annotation), the
-error has no sample section.
+error has no sample section (see the second example below).
 
 Example
 ~~~~~~~
@@ -30,7 +29,7 @@ Example
    class Schema(Protocol):
        age: int
 
-   df = pd.DataFrame({"age": [25, "invalid", 30, None, 35, "bad", 40]})
+   df = pd.DataFrame({"age": [25, "invalid", 30, 35, "bad", 40]})
    try:
        validated_df = DataFrame[Schema](df)
    except ValidationError as e:
@@ -42,10 +41,26 @@ Output:
 
    Column 'age': expected int, got object
 
-   Sample invalid values (showing first 3 of 4):
-     Row 1: 'invalid' (str)
-     Row 3: None (NoneType)
-     Row 5: 'bad' (str)
+   Sample invalid values (showing first 2 of 2):
+     Row 1: 'invalid'
+     Row 4: 'bad'
+
+When every value has the expected type but the dtype does not match, only the
+first line is shown:
+
+.. code-block:: python
+
+   df = pd.DataFrame({"age": [25, 30, 35]}, dtype=object)
+   try:
+       validated_df = DataFrame[Schema](df)
+   except ValidationError as e:
+       print(e)
+
+Output:
+
+.. code-block:: text
+
+   Column 'age': expected int, got object
 
 Missing Columns
 ---------------
@@ -98,7 +113,7 @@ Output:
 
    Column 'age': values must be in range [0, 150]
 
-   Sample invalid values (showing first 3 of 4):
+   Sample invalid values (showing first 3 of 3):
      Row 1: 200
      Row 3: -5
      Row 5: 300
@@ -154,9 +169,14 @@ Output:
 
    Column 'user_id': contains duplicate values
 
-   Sample duplicate values (showing first 2):
-     Value 2 at rows: [1, 2]
-     Value 5 at rows: [4, 5, 6]
+   Sample invalid values (showing first 5 of 5):
+     Row 1: 2
+     Row 2: 2
+     Row 4: 5
+     Row 5: 5
+     Row 6: 5
+
+Every row holding a duplicated value is reported, including the first occurrence.
 
 In Validator
 ~~~~~~~~~~~~
@@ -270,8 +290,9 @@ Performance Notes
 
 To avoid overwhelming output and maintain performance:
 
-* Type error checking examines only the first 100 rows
-* Error messages show at most 5 sample invalid values
-* Duplicate detection shows at most 5 duplicate value groups
+* Error messages show at most 5 sample invalid values, along with the total
+  number of invalid values
+* Duplicate detection counts each row holding a duplicated value, so the 5
+  samples may come from fewer than 5 distinct values
 
 For large DataFrames, consider sampling before validation during development.
