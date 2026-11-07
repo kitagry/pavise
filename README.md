@@ -1,6 +1,6 @@
 <div align="center">
 
-<img alt="pavise logo: a shield protecting a panda and a polar bear" src="https://raw.githubusercontent.com/kitagry/pavise/main/assets/logo.svg" width="160" height="160">
+<img alt="pavise logo: a striped shield guarding a panda and a polar bear" src="https://raw.githubusercontent.com/kitagry/pavise/main/assets/logo.svg" width="128" height="128">
 
 <h1>pavise</h1>
 
@@ -108,7 +108,7 @@ Sample invalid values (showing first 2 of 2):
 
 A **pavise** was a large shield used by medieval crossbowmen, big enough to cover the whole body.
 Like its namesake, this library is a shield for your data: whether your datasets are small or big, pavise protects your code with type safety and validation.
-The logo shows that shield guarding a panda and a polar bear: your pandas and polars DataFrames.
+The logo shows that shield with a panda on one half and a polar bear on the other: your pandas and polars DataFrames, standing behind its stripes.
 
 ## 📦 Installation
 
