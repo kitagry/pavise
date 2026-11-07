@@ -82,6 +82,7 @@ DataFrame[UserSchema](
 )
 ```
 
+<!-- example-output -->
 ```text
 ValidationError: Column 'age': values must be in range [0, 150]
 
@@ -347,13 +348,14 @@ uv run pytest tests/test_polars/
 
 `tests/test_docs_examples.py` runs every Python code block in `README.md` and `docs/**/*.rst`.
 Blocks on the same page share one namespace, top to bottom.
-Put one of these comments right before a block when it cannot run as is (they are not rendered):
+Put one of these comments right before a block to change how it is run or checked (they are not rendered):
 
 | reStructuredText | Markdown | Effect |
 |------------------|----------|--------|
 | `.. example-setup` + indented code | `<!-- example-setup` ... `-->` | Hidden code run at that point (e.g. to define `df`) |
 | `.. example-raises: ValidationError` | `<!-- example-raises: ValidationError -->` | The next block must raise that exception |
 | `.. example-skip` | `<!-- example-skip -->` | Do not run the next block (e.g. it needs a database or network) |
+| `.. example-output` + `text` block | `<!-- example-output -->` + `text` block | The text block must equal what the previous block prints, or `ExceptionName: message` for an `example-raises` block |
 
 ### Testing with tox
 
