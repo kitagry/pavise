@@ -33,9 +33,6 @@ from pavise._polars.validator_impl import (
 from pavise.checks import DataFrameCheck, get_dataframe_checks
 from pavise.exceptions import ValidationError
 
-# Maximum number of rows to check for type validation (performance optimization)
-MAX_CHECK_ROWS = 100
-
 
 @dataclass
 class TypeChecker:
