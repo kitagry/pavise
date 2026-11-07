@@ -108,7 +108,7 @@ Sample invalid values (showing first 2 of 2):
 
 A **pavise** was a large shield used by medieval crossbowmen, big enough to cover the whole body.
 Like its namesake, this library is a shield for your data: whether your datasets are small or big, pavise protects your code with type safety and validation.
-The logo shows that shield with a panda on one half and a polar bear on the other: your pandas and polars DataFrames, standing behind its stripes.
+The logo shows that shield, striped and split in two, with a panda on one half and a polar bear on the other: it guards your pandas and polars DataFrames.
 
 ## 📦 Installation
 
