@@ -56,3 +56,16 @@ def test_type_error_limits_sample_size():
 
     # Should indicate that samples are limited
     assert "showing" in error_message.lower() or "sample" in error_message.lower()
+
+
+def test_type_error_reports_invalid_value_beyond_first_100_rows():
+    """Every row is type-checked, so a bad value past row 100 is still reported"""
+    ages = [25] * 120 + ["bad"] + [25] * 29
+    df = pl.DataFrame(
+        {"age": pl.Series(ages, dtype=pl.Object, strict=False), "name": ["Alice"] * 150}
+    )
+
+    with pytest.raises(ValidationError) as exc_info:
+        DataFrame[SimpleSchema](df)
+
+    assert "Row 120: 'bad'" in str(exc_info.value)
