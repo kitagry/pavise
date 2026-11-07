@@ -37,6 +37,8 @@ Example
 
 Output:
 
+.. example-output
+
 .. code-block:: text
 
    Column 'age': expected int, got object
@@ -57,6 +59,8 @@ first line is shown:
        print(e)
 
 Output:
+
+.. example-output
 
 .. code-block:: text
 
@@ -80,6 +84,8 @@ When a required column is missing:
        print(e)
 
 Output:
+
+.. example-output
 
 .. code-block:: text
 
@@ -109,6 +115,8 @@ Range Validator
 
 Output:
 
+.. example-output
+
 .. code-block:: text
 
    Column 'age': values must be in range [0, 150]
@@ -137,6 +145,8 @@ Comparison Validators (Ge / Gt / Le / Lt)
 
 Output:
 
+.. example-output
+
 .. code-block:: text
 
    Column 'price': values must be >= 0
@@ -164,6 +174,8 @@ Unique Validator
        print(e)
 
 Output:
+
+.. example-output
 
 .. code-block:: text
 
@@ -196,6 +208,8 @@ In Validator
 
 Output:
 
+.. example-output
+
 .. code-block:: text
 
    Column 'status': contains values not in allowed values
@@ -222,6 +236,8 @@ Regex Validator
 
 Output:
 
+.. example-output
+
 .. code-block:: text
 
    Column 'email': contains values that don't match the pattern
@@ -247,6 +263,8 @@ MinLen/MaxLen Validators
        print(e)
 
 Output:
+
+.. example-output
 
 .. code-block:: text
 
@@ -280,6 +298,8 @@ When strict mode is enabled and extra columns are present:
        print(e)
 
 Output:
+
+.. example-output
 
 .. code-block:: text
 

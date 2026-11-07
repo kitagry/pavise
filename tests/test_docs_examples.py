@@ -1,7 +1,10 @@
+import contextlib
+import io
 import re
 import textwrap
 from dataclasses import dataclass
 from pathlib import Path
+from types import CodeType
 from typing import Literal
 
 import pytest
@@ -14,22 +17,29 @@ IMPORT_DATETIME = re.compile(r"^\s*import datetime\b", re.MULTILINE)
 
 # Markers are comments so they never show up in the rendered docs:
 #   RST:      ``.. example-setup`` (indented hidden code), ``.. example-skip``,
-#             ``.. example-raises: ExceptionName``
+#             ``.. example-raises: ExceptionName``, ``.. example-output``
 #   Markdown: ``<!-- example-setup ... -->``, ``<!-- example-skip -->``,
-#             ``<!-- example-raises: ExceptionName -->``
+#             ``<!-- example-raises: ExceptionName -->``, ``<!-- example-output -->``
+# ``example-output`` goes right before a text block holding what the previous code block
+# prints (or ``ExceptionName: message`` for a raised exception). It is opt-in because a
+# text block is not always the output of the block right above it.
 _RST_INDENTED = r"\n\n((?:(?:[ \t]+.*)?\n)+)"
 RST_EXAMPLE = re.compile(
     r"^(?:\.\. code-block:: python(?P<code>" + _RST_INDENTED + r")"
     r"|\.\. example-setup(?P<setup>" + _RST_INDENTED + r")"
     r"|\.\. example-skip$"
-    r"|\.\. example-raises: (?P<raises>\w+)$)",
+    r"|\.\. example-raises: (?P<raises>\w+)$"
+    r"|\.\. example-output\n\n\.\. code-block:: text(?P<output>" + _RST_INDENTED + r")"
+    r"|(?P<stray_output>\.\. example-output)$)",
     re.MULTILINE,
 )
 MD_EXAMPLE = re.compile(
     r"^(?:```python\n(?P<code>.*?)^```"
     r"|<!-- example-setup\n(?P<setup>.*?)^-->"
     r"|<!-- example-skip -->$"
-    r"|<!-- example-raises: (?P<raises>\w+) -->$)",
+    r"|<!-- example-raises: (?P<raises>\w+) -->$"
+    r"|<!-- example-output -->\n```text\n(?P<output>.*?)^```"
+    r"|(?P<stray_output><!-- example-output -->)$)",
     re.MULTILINE | re.DOTALL,
 )
 
@@ -41,6 +51,7 @@ class Example:
     code: str
     mode: Mode = "run"
     raises: str | None = None
+    output: str | None = None
 
 
 def _pattern(path: Path) -> re.Pattern[str]:
@@ -64,6 +75,12 @@ def _parse_examples(text: str, pattern: re.Pattern[str]) -> list[Example]:
             mode, raises = "run", None
         elif m.group("raises") is not None:
             mode, raises = "raises", m.group("raises")
+        elif m.group("output") is not None:
+            if not examples or examples[-1].mode == "skip":
+                raise ValueError("example-output needs a preceding block that runs")
+            examples[-1].output = _normalize(m.group("output"))
+        elif m.group("stray_output") is not None:
+            raise ValueError("example-output must be followed directly by a text block")
         else:
             mode = "skip"
     return examples
@@ -87,19 +104,38 @@ def _run_examples(examples: list[Example], doc: str) -> None:
     for i, example in enumerate(examples):
         if example.mode == "skip":
             continue
-        code = compile(example.code, f"{doc} (example {i})", "exec")
-        if example.mode == "run":
-            exec(code, namespace)
-            continue
-        try:
-            exec(code, namespace)
-        except Exception as e:
-            if type(e).__name__ != example.raises:
-                raise
-        else:
-            raise AssertionError(
-                f"{doc} (example {i}): expected {example.raises} but nothing was raised"
+        name = f"{doc} (example {i})"
+        code = compile(example.code, name, "exec")
+        stdout = io.StringIO()
+        # Capture only when compared, so pytest still reports what a failing block printed.
+        capture = (
+            contextlib.redirect_stdout(stdout)
+            if example.output is not None
+            else contextlib.nullcontext()
+        )
+        with capture:
+            if example.mode == "run":
+                exec(code, namespace)
+            else:
+                _exec_expecting(code, namespace, example.raises, name)
+        if example.output is not None:
+            actual = _normalize(stdout.getvalue())
+            assert actual == example.output, (
+                f"{name}: documented output differs from the actual output:\n{actual}"
             )
+
+
+def _exec_expecting(
+    code: CodeType, namespace: dict[str, object], raises: str | None, name: str
+) -> None:
+    try:
+        exec(code, namespace)
+    except Exception as e:
+        if type(e).__name__ != raises:
+            raise
+        print(f"{type(e).__name__}: {e}")
+    else:
+        raise AssertionError(f"{name}: expected {raises} but nothing was raised")
 
 
 def _blocks_missing_datetime_import() -> list[tuple[str, str]]:
@@ -144,6 +180,78 @@ def test_rst_examples_apply_marker_to_following_code_block():
         ("unreachable()\n", "skip", None),
         ("ok()\n", "run", None),
     ]
+
+
+def test_rst_examples_attach_output_to_previous_code_block():
+    text = (
+        ".. code-block:: python\n\n   print('hi')\n\n"
+        "Output:\n\n"
+        ".. example-output\n\n"
+        ".. code-block:: text\n\n   hi\n"
+    )
+    examples = _rst_examples(text)
+    assert [(e.code, e.output) for e in examples] == [("print('hi')\n", "hi\n")]
+
+
+def test_md_examples_attach_output_to_previous_code_block():
+    text = "```python\nprint('hi')\n```\n\n<!-- example-output -->\n```text\nhi\n```\n"
+    examples = _parse_examples(text, MD_EXAMPLE)
+    assert [(e.code, e.output) for e in examples] == [("print('hi')\n", "hi\n")]
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        # The marker must be followed by a ``text`` block, or the output would go unchecked.
+        ".. code-block:: python\n\n   print(1)\n\n"
+        ".. example-output\n\n.. code-block:: console\n\n   1\n",
+        ".. code-block:: python\n\n   print(1)\n\n"
+        ".. example-output\n.. code-block:: text\n\n   1\n",
+        # Output of a skipped block is never compared.
+        ".. example-skip\n\n.. code-block:: python\n\n   print(1)\n\n"
+        ".. example-output\n\n.. code-block:: text\n\n   2\n",
+        ".. example-output\n\n.. code-block:: text\n\n   1\n",
+    ],
+)
+def test_rst_examples_reject_output_marker_that_would_go_unchecked(text: str):
+    with pytest.raises(ValueError, match="example-output"):
+        _rst_examples(text)
+
+
+def test_md_examples_reject_output_marker_without_text_block():
+    text = "```python\nprint(1)\n```\n\n<!-- example-output -->\n```console\n1\n```\n"
+    with pytest.raises(ValueError, match="example-output"):
+        _parse_examples(text, MD_EXAMPLE)
+
+
+def test_run_examples_fails_when_printed_output_differs():
+    with pytest.raises(AssertionError, match="hello"):
+        _run_examples([Example("print('hello')\n", output="bye\n")], "doc.rst")
+
+
+def test_run_examples_accepts_matching_printed_output():
+    _run_examples([Example("print('hello')\n", output="hello\n")], "doc.rst")
+
+
+def test_run_examples_compares_expected_exception_with_output():
+    example = Example(
+        "raise ValueError('bad value')\n",
+        mode="raises",
+        raises="ValueError",
+        output="ValueError: bad value\n",
+    )
+    _run_examples([example], "doc.rst")
+
+
+def test_run_examples_fails_when_exception_message_differs_from_output():
+    example = Example(
+        "raise ValueError('bad value')\n",
+        mode="raises",
+        raises="ValueError",
+        output="ValueError: other\n",
+    )
+    with pytest.raises(AssertionError, match="bad value"):
+        _run_examples([example], "doc.rst")
 
 
 def test_run_examples_shares_namespace_between_blocks():
