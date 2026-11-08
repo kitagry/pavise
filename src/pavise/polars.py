@@ -1,12 +1,15 @@
 """Polars backend for type-parameterized DataFrame with Protocol-based schema validation."""
 
-from typing import Any, Generic, Literal, TypeVar, get_args, get_origin, get_type_hints
+from typing import Any, Generic, TypeVar, get_type_hints
 
 try:
     import polars as pl
 except ImportError:
     raise ImportError("Polars is not installed. Install it with: pip install pavise[polars]")
 
+from pavise._annotations import _extract_type_and_validators, is_nested_type, parse_annotation
+from pavise._polars.dtypes import dtype_for_type
+from pavise._polars.nested import nested_dtype
 from pavise._polars.validation import validate_dataframe, validate_lazyframe_schema
 from pavise.types import NotRequiredColumn
 
@@ -21,45 +24,18 @@ def _build_empty_columns(schema: type) -> dict[str, pl.Series]:
 
     Used by both DataFrame.make_empty() and LazyFrame.make_empty().
     """
-    from pavise._polars.validation import _extract_type_and_validators
-
     type_hints = get_type_hints(schema, include_extras=True)
     columns = {}
 
     for col_name, col_type in type_hints.items():
         base_type, _, _, _ = _extract_type_and_validators(col_type)
-
-        # Handle Union types (represented as tuple) - use first type
-        if isinstance(base_type, tuple):
-            base_type = base_type[0]
-
-        if get_origin(base_type) is Literal:
-            literal_values = get_args(base_type)
-            if literal_values:
-                base_type = type(literal_values[0])
-
-        dtype = _get_dtype_for_type(base_type)
+        if is_nested_type(base_type):
+            dtype = nested_dtype(parse_annotation(col_type, col_name, schema))
+        else:
+            dtype = dtype_for_type(base_type)
         columns[col_name] = pl.Series([], dtype=dtype)
 
     return columns
-
-
-def _get_dtype_for_type(base_type: type) -> pl.DataType:
-    """
-    Get polars dtype for a given Python type.
-
-    Args:
-        base_type: Python type (int, str, float, bool, datetime, date, timedelta)
-
-    Returns:
-        Polars DataType
-    """
-    from pavise._polars.validation import TYPE_TO_DTYPE
-
-    if isinstance(base_type, type) and issubclass(base_type, pl.DataType):
-        return base_type()
-
-    return TYPE_TO_DTYPE.get(base_type, pl.Utf8())
 
 
 class DataFrame(pl.DataFrame, Generic[SchemaT_co]):

@@ -74,6 +74,11 @@ You can use polars data types directly:
 
 This gives you precise control over the polars dtype.
 
+Parameterized dtypes such as ``pl.List(pl.Utf8)``, ``pl.Struct({...})`` or
+``pl.Array(pl.Int64, 2)`` can be written as instances, which the column's dtype must equal.
+For list and struct columns, ``list[X]`` and nested ``Protocol`` schemas are usually more
+convenient (see :doc:`nested-types`).
+
 Nullable Types
 --------------
 

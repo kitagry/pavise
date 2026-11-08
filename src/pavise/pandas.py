@@ -32,6 +32,8 @@ def _get_dtype_for_type(base_type: type) -> str | pd.api.extensions.ExtensionDty
     """
     from pavise._pandas.validation import TYPE_TO_DTYPE
 
+    if isinstance(base_type, pd.api.extensions.ExtensionDtype):
+        return base_type
     if isinstance(base_type, type) and issubclass(base_type, pd.api.extensions.ExtensionDtype):
         return base_type()
 
@@ -99,10 +101,13 @@ class DataFrame(pd.DataFrame, Generic[SchemaT_co]):
         if cls._schema is None:
             return cls({})
 
-        from pavise._pandas.validation import (
-            _extract_index_name_type_and_validators,
+        from pavise._annotations import (
             _extract_type_and_validators,
+            is_nested_type,
+            parse_annotation,
         )
+        from pavise._pandas.nested import nested_dtype
+        from pavise._pandas.validation import _extract_index_name_type_and_validators
 
         type_hints = get_type_hints(cls._schema, include_extras=True)
         columns = {}
@@ -120,6 +125,10 @@ class DataFrame(pd.DataFrame, Generic[SchemaT_co]):
             base_type, _validators, is_optional, _is_not_required = _extract_type_and_validators(
                 col_type
             )
+            if is_nested_type(base_type):
+                nested = nested_dtype(parse_annotation(col_type, col_name, cls._schema))
+                columns[col_name] = pd.Series([], dtype=nested)
+                continue
 
             # Handle Union types (represented as tuple) - use first type
             if isinstance(base_type, tuple):
