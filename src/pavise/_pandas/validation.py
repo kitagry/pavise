@@ -20,7 +20,8 @@ from typing import (
 import numpy as np
 import pandas as pd
 
-from pavise._annotations import _extract_type_and_validators
+from pavise._annotations import _extract_type_and_validators, is_nested_type, parse_annotation
+from pavise._pandas.nested import check_nested_column
 from pavise._pandas.validator_impl import (
     MAX_SAMPLE_SIZE,
     apply_validator,
@@ -192,7 +193,7 @@ def validate_dataframe(df: pd.DataFrame, schema: type, strict: bool = False) -> 
             if is_not_required and col_name not in df.columns:
                 continue
             _check_column_exists(df, col_name)
-            _check_column_type(df, col_name, col_type)
+            _check_column_type(df, col_name, col_type, strict)
 
     schema_cols = [c for c in expected_cols if c != INDEX_COLUMN_NAME and c in df.columns]
     if strict:
@@ -438,12 +439,32 @@ def _is_untyped_all_null(series: pd.Series) -> bool:
     return series.dtype in (np.dtype(object), np.dtype(np.float64)) and bool(series.isna().all())
 
 
-def _check_column_type(df: pd.DataFrame, col_name: str, expected_type: type) -> None:
+def _check_column_type(df: pd.DataFrame, col_name: str, expected_type: type, strict: bool) -> None:
     """Check if a column has the expected type and apply validators."""
     base_type, validators, is_optional, _is_not_required = _extract_type_and_validators(
         expected_type
     )
     col_series: pd.Series = df[col_name]  # type: ignore[assignment]
+
+    if is_nested_type(base_type):
+        field = parse_annotation(expected_type, col_name)
+        if field.has_validators():
+            raise ValidationError(
+                "validators on list and struct columns are not supported yet",
+                column_name=col_name,
+            )
+        if not (is_optional and _is_untyped_all_null(col_series)):
+            check_nested_column(field, col_series, col_name, strict)
+        return
+
+    if isinstance(base_type, pd.api.extensions.ExtensionDtype):
+        if col_series.dtype != base_type:
+            raise ValidationError(
+                f"expected {base_type}, got {col_series.dtype}", column_name=col_name
+            )
+        for validator in validators:
+            apply_validator(col_series, validator, col_name)
+        return
 
     if isinstance(base_type, type) and issubclass(base_type, pd.api.extensions.ExtensionDtype):
         col_dtype = col_series.dtype
