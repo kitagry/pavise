@@ -35,8 +35,8 @@ jobs:
         PYTHON_VERSION=$(echo "${{ matrix.python-version }}" | tr -d '.')
         tox -e py${PYTHON_VERSION}-${{ matrix.backend }}
 
-  test-min-polars:
-    name: Test Python 3.10 - polars 1.0.0 (lower bound)
+  test-min-versions:
+    name: Test Python 3.10 - pandas 2.2.0 and polars 1.0.0 (lower bounds)
     runs-on: ubuntu-latest
 
     steps:
@@ -51,7 +51,7 @@ jobs:
       uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
 
     - name: Install dependencies
-      run: uv pip install --system -e ".[all]" "polars==1.0.0" "pyarrow>=10.0.0" "pytest>=7.0.0"
+      run: uv pip install --system -e ".[all]" "pandas==2.2.0" "polars==1.0.0" "pyarrow>=10.0.0" "pytest>=7.0.0"
 
     - name: Run tests
       run: pytest tests/ -v
