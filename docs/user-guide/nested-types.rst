@@ -205,7 +205,7 @@ Null values show the whole row they are found in:
    df = pl.DataFrame({"tags": [["a", None], ["b"], [None]]})
    try:
        DataFrame[UserSchema](df.with_columns(
-           address=pl.lit({"city": "Tokyo", "zip": "100-0001"}),
+           address=pl.struct(city=pl.lit("Tokyo"), zip=pl.lit("100-0001")),
            history=pl.lit([], dtype=pl.List(pl.Struct({"city": pl.Utf8, "zip": pl.Utf8}))),
            nickname=pl.lit(None),
        ))

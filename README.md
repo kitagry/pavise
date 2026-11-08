@@ -124,7 +124,7 @@ pip install "pavise[polars]"
 pip install "pavise[all]"
 ```
 
-pavise supports Python 3.10 and later.
+pavise supports Python 3.10 and later. The polars backend requires polars 1.0.0 or later.
 
 ## 📖 Usage
 
