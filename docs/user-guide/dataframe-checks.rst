@@ -173,7 +173,8 @@ index labels, or row numbers for polars). ``error.invalid_samples`` holds a
    of ``DataFrame`` is covariant, so a type checker accepts a ``DataFrame`` of another
    Protocol with the same columns where ``DataFrame[DailyStepsSchema]`` is expected, and
    the other way around. A DataFrame typed with ``DailyStepsSchema`` is unique only if
-   it went through that runtime validation.
+   it went through that runtime validation. Catching this with the type checker is
+   tracked in `#85 <https://github.com/kitagry/pavise/issues/85>`_.
 
 When Checks Run
 ---------------
