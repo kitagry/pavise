@@ -271,7 +271,10 @@ def _invalid_value_mask(
                 cache[value_type] = not is_valid(value)
             return cache[value_type]
 
-        return series.map_elements(is_invalid, return_dtype=pl.Boolean, skip_nulls=False)
+        # map_elements panics on Object Series before polars 1.36
+        return pl.Series(
+            series.name, [is_invalid(value) for value in series.to_list()], dtype=pl.Boolean
+        )
 
     # Non-null values of any non-Object dtype all share one Python type, so a single element
     # decides for the whole column.

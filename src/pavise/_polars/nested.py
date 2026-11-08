@@ -149,7 +149,12 @@ def _check_values(
         # Exploding an empty list yields a null, so leave empty lists out
         non_empty = lengths > 0
         elements = values.filter(non_empty).explode()
-        element_rows = rows.filter(non_empty).repeat_by(lengths.filter(non_empty)).explode()
+        # Series.repeat_by only exists since polars 1.27, so go through the expression
+        element_rows = (
+            pl.DataFrame({"row": rows.filter(non_empty), "length": lengths.filter(non_empty)})
+            .select(pl.col("row").repeat_by("length").explode())
+            .to_series()
+        )
         _check_values(node.element, elements, element_rows, column, column_name, f"{path}[]")
     elif isinstance(node, StructOf):
         present = {f.name for f in values.dtype.fields}  # type: ignore[attr-defined]
