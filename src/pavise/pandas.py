@@ -99,10 +99,8 @@ class DataFrame(pd.DataFrame, Generic[SchemaT_co]):
         if cls._schema is None:
             return cls({})
 
-        from pavise._pandas.validation import (
-            _extract_index_name_type_and_validators,
-            _extract_type_and_validators,
-        )
+        from pavise._annotations import _extract_type_and_validators
+        from pavise._pandas.validation import _extract_index_name_type_and_validators
 
         type_hints = get_type_hints(cls._schema, include_extras=True)
         columns = {}

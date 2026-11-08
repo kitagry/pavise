@@ -709,7 +709,7 @@ requires-dist = [
     { name = "sphinx-rtd-theme", marker = "extra == 'dev'", specifier = ">=1.0.0" },
     { name = "sphinx-rtd-theme", marker = "extra == 'docs'", specifier = ">=1.0.0" },
     { name = "tox", marker = "extra == 'dev'", specifier = ">=4.0.0" },
-    { name = "typing-extensions", specifier = ">=4.0.0" },
+    { name = "typing-extensions", specifier = ">=4.8.0" },
 ]
 provides-extras = ["all", "dev", "docs", "pandas", "polars"]
 

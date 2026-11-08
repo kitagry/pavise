@@ -23,6 +23,8 @@ class ValidationError(PaviseError):
     Attributes:
         message: Human-readable error message
         column_name: Name of the column that failed validation (if applicable)
+        path: Where inside a List or Struct column the failure is, e.g. ``history[].zip``
+            (None for a failure of the column itself)
         invalid_samples: List of (row_index, value) tuples showing sample invalid values
     """
 
@@ -31,12 +33,14 @@ class ValidationError(PaviseError):
         base_message: str,
         column_name: str | None = None,
         invalid_samples: list[tuple[Any, ...]] | None = None,
+        path: str | None = None,
     ):
         msg = base_message
-        if column_name:
-            msg = f"Column '{column_name}': {msg}"
+        if path or column_name:
+            msg = f"Column '{path or column_name}': {msg}"
         super().__init__(msg)
         self.column_name = column_name
+        self.path = path
         self.invalid_samples = invalid_samples or []
 
     @classmethod
@@ -47,6 +51,7 @@ class ValidationError(PaviseError):
         samples: list[tuple[Any, ...]],
         total_invalid: int,
         format_value: Callable[[Any], str] = repr,
+        path: str | None = None,
     ) -> Self:
         """
         Create a ValidationError with a formatted message including sample invalid values.
@@ -56,6 +61,7 @@ class ValidationError(PaviseError):
             samples: List of (index, value) tuples
             total_invalid: Total number of invalid values
             format_value: Optional function to format values (default: repr)
+            path: Where inside a List or Struct column the invalid values are
 
         Returns:
         Formatted error message
@@ -65,7 +71,7 @@ class ValidationError(PaviseError):
         if total_invalid > 0:
             msg += f"\n\nSample invalid values (showing first {len(samples)} of {total_invalid}):"
             msg += "".join([f"\n  Row {idx}: {format_value(val)}" for idx, val in samples])
-        return cls(msg, column_name=col_name, invalid_samples=samples)
+        return cls(msg, column_name=col_name, invalid_samples=samples, path=path)
 
     @classmethod
     def new_with_duplicate_keys(

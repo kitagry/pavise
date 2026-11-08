@@ -2,15 +2,10 @@
 
 from __future__ import annotations
 
-import types
 from collections.abc import Callable
-from dataclasses import dataclass
-from datetime import date, datetime, timedelta
 from typing import (
-    Annotated,
     Any,
     Literal,
-    Union,
     get_args,
     get_origin,
     get_type_hints,
@@ -23,6 +18,20 @@ try:
 except ImportError:
     raise ImportError("Polars is not installed. Install it with: pip install pavise[polars]")
 
+from pavise._annotations import (
+    Field,
+    _extract_type_and_validators,
+    is_nested_type,
+    parse_annotation,
+)
+from pavise._polars.dtypes import (
+    TYPE_CHECKERS,
+    TYPE_TO_DTYPE,
+    TypeChecker,
+    dtype_name,
+    is_dtype_annotation,
+)
+from pavise._polars.nested import check_nested_dtype, check_nested_nulls
 from pavise._polars.validator_impl import (
     BOUND_VALIDATORS,
     MAX_SAMPLE_SIZE,
@@ -32,74 +41,6 @@ from pavise._polars.validator_impl import (
 )
 from pavise.checks import DataFrameCheck, UniqueCheck, get_dataframe_checks
 from pavise.exceptions import ValidationError
-
-
-@dataclass
-class TypeChecker:
-    """Type checker with both dtype-level and value-level validation."""
-
-    dtype: Callable  # Check dtype
-    value: Callable[[object], bool]  # Check individual values
-
-
-def _is_datetime_dtype(dtype: Any) -> bool:
-    """Check if dtype is a Datetime type (with any time unit)."""
-    if dtype == pl.Datetime:
-        return True
-    if hasattr(dtype, "time_unit"):
-        return True
-    return False
-
-
-TYPE_CHECKERS = {
-    int: TypeChecker(
-        dtype=lambda dtype: (
-            dtype
-            in (pl.Int8, pl.Int16, pl.Int32, pl.Int64, pl.UInt8, pl.UInt16, pl.UInt32, pl.UInt64)
-        ),
-        value=lambda x: isinstance(x, int) and not isinstance(x, bool),
-    ),
-    float: TypeChecker(
-        dtype=lambda dtype: dtype in (pl.Float32, pl.Float64),
-        value=lambda x: isinstance(x, (int, float)) and not isinstance(x, bool),
-    ),
-    str: TypeChecker(
-        dtype=lambda dtype: dtype == pl.Utf8,
-        value=lambda x: isinstance(x, str),
-    ),
-    bool: TypeChecker(
-        dtype=lambda dtype: dtype == pl.Boolean,
-        value=lambda x: isinstance(x, bool),
-    ),
-    datetime: TypeChecker(
-        dtype=_is_datetime_dtype,
-        value=lambda x: isinstance(x, datetime),
-    ),
-    date: TypeChecker(
-        dtype=lambda dtype: dtype == pl.Date,
-        value=lambda x: isinstance(x, date),
-    ),
-    timedelta: TypeChecker(
-        dtype=lambda dtype: dtype == pl.Duration,
-        value=lambda x: isinstance(x, timedelta),
-    ),
-    Any: TypeChecker(
-        dtype=lambda _: True,
-        value=lambda _: True,
-    ),
-}
-
-# Mapping from Python type to polars dtype for creating empty DataFrames
-TYPE_TO_DTYPE = {
-    int: pl.Int64(),
-    float: pl.Float64(),
-    str: pl.Utf8(),
-    bool: pl.Boolean(),
-    datetime: pl.Datetime(),
-    date: pl.Date(),
-    timedelta: pl.Duration(),
-    Any: pl.Utf8(),
-}
 
 
 def validate_dataframe(df: pl.DataFrame, schema: type, strict: bool = False) -> None:
@@ -122,7 +63,7 @@ def validate_dataframe(df: pl.DataFrame, schema: type, strict: bool = False) -> 
         if is_not_required and col_name not in df.columns:
             continue
         _check_column_exists(df, col_name)
-        _check_column_type(df, col_name, col_type)
+        _check_column_type(df, col_name, col_type, strict)
 
     schema_cols = [c for c in expected_cols if c in df.columns]
     if strict:
@@ -234,7 +175,7 @@ def validate_lazyframe_schema(lf: pl.LazyFrame, schema: type, strict: bool = Fal
         if is_not_required and col_name not in lf_schema.names():
             continue
         _check_lazyframe_column_exists(lf_schema, col_name)
-        _check_lazyframe_column_type(lf_schema, col_name, col_type)
+        _check_lazyframe_column_type(lf_schema, col_name, col_type, strict)
 
     if strict:
         schema_cols = set(expected_cols.keys())
@@ -250,7 +191,9 @@ def _check_lazyframe_column_exists(lf_schema: pl.Schema, col_name: str) -> None:
         raise ValidationError("missing", column_name=col_name)
 
 
-def _check_lazyframe_column_type(lf_schema: pl.Schema, col_name: str, expected_type: type) -> None:
+def _check_lazyframe_column_type(
+    lf_schema: pl.Schema, col_name: str, expected_type: type, strict: bool
+) -> None:
     """Check if a column has the expected type (schema-level only, no value validation)."""
     base_type, validators, _is_optional, _is_not_required = _extract_type_and_validators(
         expected_type
@@ -258,15 +201,20 @@ def _check_lazyframe_column_type(lf_schema: pl.Schema, col_name: str, expected_t
 
     col_dtype = lf_schema[col_name]
 
+    if is_nested_type(base_type):
+        field = _parse_nested_column(expected_type, col_name)
+        check_nested_dtype(field, col_dtype, col_name, strict)
+        return
+
     # Orderability depends only on the dtype, so reject it here instead of waiting for collect()
     for validator in validators:
         if isinstance(validator, BOUND_VALIDATORS):
             require_orderable_dtype(col_dtype, validator, col_name)
 
-    if isinstance(base_type, type) and issubclass(base_type, pl.DataType):
+    if is_dtype_annotation(base_type):
         if col_dtype != base_type:
             raise ValidationError(
-                f"expected {base_type.__name__}, got {col_dtype}",
+                f"expected {dtype_name(base_type)}, got {col_dtype}",
                 column_name=col_name,
             )
         return
@@ -302,66 +250,6 @@ def _check_lazyframe_column_type(lf_schema: pl.Schema, col_name: str, expected_t
             f"expected {base_type.__name__}, got {col_dtype}",
             column_name=col_name,
         )
-
-
-def _extract_type_and_validators(
-    annotation: type,
-) -> tuple[type | tuple[type, ...], list[Any], bool, bool]:
-    """
-    Extract base type, validators, nullable flag, and not-required flag from a type annotation.
-
-    Args:
-        annotation: Type annotation (e.g., int, Optional[int], NotRequiredColumn[int],
-            or Annotated[int, Range(0, 100)])
-
-    Returns:
-        Tuple of (base_type, validators, is_optional, is_not_required)
-        - For Annotated[int, Range(0, 100)]: (int, [Range(0, 100)], False, False)
-        - For int: (int, [], False, False)
-        - For Optional[int]: (int, [], True, False)
-        - For Annotated[int, Range(0, 100)] | None: (int, [Range(0, 100)], True, False)
-        - For NotRequiredColumn[int]: (int, [], False, True)
-        - For NotRequiredColumn[Optional[int]]: (int, [], True, True)
-        - For Union[int, str]: ((int, str), [], False, False)
-        - For Union[int, str, None]: ((int, str), [], True, False)
-    """
-    validators = []
-    is_optional = False
-    is_not_required = False
-
-    if isinstance(annotation, type) and issubclass(annotation, NotRequiredColumn):
-        is_not_required = True
-        annotation = getattr(annotation, "_inner_type", annotation)
-
-    if get_origin(annotation) is Annotated:
-        args = get_args(annotation)
-        base_type = args[0]
-        validators = list(args[1:])
-        annotation = base_type
-
-    origin = get_origin(annotation)
-    # Handle both Union[int, str] and int | str (PEP 604)
-    if origin is Union or isinstance(annotation, types.UnionType):
-        args = get_args(annotation)
-        # Check if None is in the union
-        if type(None) in args:
-            is_optional = True
-            # Remove None from the union
-            non_none_types = tuple(arg for arg in args if arg is not type(None))
-            # If only one type remains after removing None, return it as a single type
-            if len(non_none_types) == 1:
-                base_type = non_none_types[0]
-                # Annotated[T, ...] | None puts the validators inside the union
-                if get_origin(base_type) is Annotated:
-                    base_type, *inner_validators = get_args(base_type)
-                    validators.extend(inner_validators)
-                return base_type, validators, is_optional, is_not_required
-            # Otherwise, return the tuple of types
-            return non_none_types, validators, is_optional, is_not_required
-        # Union without None - return all types as a tuple
-        return args, validators, is_optional, is_not_required
-
-    return annotation, validators, is_optional, is_not_required
 
 
 def _invalid_value_mask(
@@ -418,17 +306,32 @@ def _check_column_exists(df: pl.DataFrame, col_name: str) -> None:
         raise ValidationError("missing", column_name=col_name)
 
 
-def _check_column_type(df: pl.DataFrame, col_name: str, expected_type: type) -> None:
+def _parse_nested_column(expected_type: type, col_name: str) -> Field:
+    field = parse_annotation(expected_type, col_name)
+    if field.has_validators():
+        raise ValidationError(
+            "validators on list and struct columns are not supported yet", column_name=col_name
+        )
+    return field
+
+
+def _check_column_type(df: pl.DataFrame, col_name: str, expected_type: type, strict: bool) -> None:
     """Check if a column has the expected type and apply validators."""
     base_type, validators, is_optional, _is_not_required = _extract_type_and_validators(
         expected_type
     )
 
-    if isinstance(base_type, type) and issubclass(base_type, pl.DataType):
+    if is_nested_type(base_type):
+        field = _parse_nested_column(expected_type, col_name)
+        check_nested_dtype(field, df[col_name].dtype, col_name, strict)
+        check_nested_nulls(field, df[col_name], col_name)
+        return
+
+    if is_dtype_annotation(base_type):
         col_dtype = df[col_name].dtype
         if col_dtype != base_type:
             raise ValidationError(
-                f"expected {base_type.__name__}, got {col_dtype}",
+                f"expected {dtype_name(base_type)}, got {col_dtype}",
                 column_name=col_name,
             )
         for validator in validators:
