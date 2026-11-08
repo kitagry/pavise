@@ -30,7 +30,7 @@ from pavise._polars.validator_impl import (
     get_invalid_samples,
     require_orderable_dtype,
 )
-from pavise.checks import DataFrameCheck, get_dataframe_checks
+from pavise.checks import DataFrameCheck, UniqueCheck, get_dataframe_checks
 from pavise.exceptions import ValidationError
 
 
@@ -131,7 +131,35 @@ def validate_dataframe(df: pl.DataFrame, schema: type, strict: bool = False) -> 
             raise ValidationError(f"Strict mode: unexpected columns {sorted(extra_cols)}")
 
     for check in get_dataframe_checks(schema):
-        _run_dataframe_check(df, check, schema_cols)
+        if isinstance(check, UniqueCheck):
+            _run_unique_check(df, check)
+        else:
+            _run_dataframe_check(df, check, schema_cols)
+
+
+def _run_unique_check(df: pl.DataFrame, check: UniqueCheck) -> None:
+    """Raise with sample duplicate keys and their rows if the key columns are not unique."""
+    columns = list(check.columns)
+    # An absent NotRequiredColumn leaves no complete key to compare.
+    if not all(c in df.columns for c in columns):
+        return
+
+    duplicated = df.select(pl.struct(columns).is_duplicated()).to_series()
+    if not duplicated.any():
+        return
+
+    # Nesting the key columns in a struct keeps their names from clashing with the helpers.
+    groups = (
+        df.select(pl.struct(columns).alias("key"), pl.int_range(pl.len()).alias("row"))
+        .filter(duplicated)
+        .group_by("key", maintain_order=True)
+        .agg(pl.col("row").head(MAX_SAMPLE_SIZE), pl.len().alias("count"))
+    )
+    duplicates = [
+        (group["key"], group["row"], group["count"])
+        for group in groups.head(MAX_SAMPLE_SIZE).iter_rows(named=True)
+    ]
+    raise ValidationError.new_with_duplicate_keys(check.columns, duplicates, groups.height)
 
 
 def _run_dataframe_check(df: pl.DataFrame, check: DataFrameCheck, schema_cols: list[str]) -> None:

@@ -100,7 +100,7 @@ Sample invalid values (showing first 2 of 2):
 | 🦆 | **Structural subtyping** | Only the declared columns are checked and extra columns are ignored. `DataFrame[Child]` is accepted wherever `DataFrame[Parent]` is expected |
 | ✅ | **Runtime validation** | Check column types and values once at system boundaries, such as CSV files, databases and APIs |
 | 📏 | **Validators** | `Range`, `Ge` / `Gt` / `Le` / `Lt`, `Unique`, `In`, `Regex`, `MinLen` / `MaxLen` and `Custom`, attached with `typing.Annotated` |
-| 🔗 | **DataFrame-level checks** | `@dataframe_check` for rules across columns, such as `start_at < end_at` |
+| 🔗 | **DataFrame-level checks** | `@dataframe_check` for rules across columns, such as `start_at < end_at`, and `@unique` for composite unique keys such as `(user_id, date)` |
 | 🔒 | **Strict mode** | `strict=True` rejects columns that are not in the schema |
 | 🐼 | **pandas & polars** | The same schema works on both backends, including polars `LazyFrame` |
 | 💬 | **Readable errors** | Errors name the column and show sample rows with the invalid values |

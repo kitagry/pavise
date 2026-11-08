@@ -110,6 +110,72 @@ The row label is the pandas index, or the row number for polars. The samples are
 available as ``error.invalid_samples``, and ``error.column_name`` is ``None``.
 A failing single-bool check only reports the check name.
 
+Unique Column Combinations
+--------------------------
+
+``@unique(*columns)`` requires the combination of the given columns to be unique across
+rows, like a composite unique key. For a single column, the ``Unique()`` validator does
+the same.
+
+.. example-raises: ValidationError
+
+.. code-block:: python
+
+   from datetime import date
+   from typing import Protocol
+
+   import pandas as pd
+   from pavise.checks import unique
+   from pavise.pandas import DataFrame
+
+   @unique("user_id", "date")
+   class DailyStepsSchema(Protocol):
+       user_id: int
+       date: date
+       steps: int
+
+   df = pd.DataFrame({
+       "user_id": [1, 2, 1],
+       "date": [date(2024, 1, 1), date(2024, 1, 1), date(2024, 1, 1)],
+       "steps": [3000, 5000, 4000],
+   })
+   DataFrame[DailyStepsSchema](df)
+
+.. example-output
+
+.. code-block:: text
+
+   ValidationError: Columns ('user_id', 'date') must be unique, found 1 duplicate key
+
+   Sample duplicate keys (showing first 1 of 1):
+     {'user_id': 1, 'date': datetime.date(2024, 1, 1)}: rows [0, 2]
+
+The error shows up to five duplicate keys, each with up to five of its rows (pandas
+index labels, or row numbers for polars). ``error.invalid_samples`` holds a
+``(row, key)`` tuple for each shown row.
+
+- **Column names are checked when the decorator is applied**, so a typo raises
+  ``ValueError`` at import time instead of when data is validated. Columns inherited
+  from a base Protocol can be used.
+- **Nulls are equal to each other**: rows whose key columns hold nulls in the same places
+  are duplicates. This matches the ``Unique()`` validator, pandas ``duplicated()`` and
+  polars ``is_duplicated()``, and differs from SQL ``UNIQUE``, which lets nulls repeat.
+  Declare the key columns without ``Optional`` to reject nulls.
+- ``@unique`` can be stacked with other ``@unique`` and ``@dataframe_check`` decorators,
+  runs in the same order and is inherited the same way.
+- If a ``NotRequiredColumn`` key column is absent, the check is skipped.
+
+.. note::
+
+   Like ``@dataframe_check`` and column validators, ``@unique`` is not part of the type.
+   It is only checked at runtime, by ``DataFrame[Schema](df)`` or by ``collect()`` on a
+   polars ``LazyFrame``. ``@unique`` returns the class unchanged and the type parameter
+   of ``DataFrame`` is covariant, so a type checker accepts a ``DataFrame`` of another
+   Protocol with the same columns where ``DataFrame[DailyStepsSchema]`` is expected, and
+   the other way around. A DataFrame typed with ``DailyStepsSchema`` is unique only if
+   it went through that runtime validation. Catching this with the type checker is
+   tracked in `#85 <https://github.com/kitagry/pavise/issues/85>`_.
+
 When Checks Run
 ---------------
 
