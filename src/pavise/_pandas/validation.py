@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import itertools
 import types
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -25,7 +26,7 @@ from pavise._pandas.validator_impl import (
     get_invalid_samples,
     is_arrow_type,
 )
-from pavise.checks import DataFrameCheck, get_dataframe_checks
+from pavise.checks import DataFrameCheck, UniqueCheck, get_dataframe_checks
 from pavise.exceptions import ValidationError
 from pavise.types import NotRequiredColumn
 
@@ -199,7 +200,39 @@ def validate_dataframe(df: pd.DataFrame, schema: type, strict: bool = False) -> 
             raise ValidationError(f"Strict mode: unexpected columns {sorted(extra_cols)}")
 
     for check in get_dataframe_checks(schema):
-        _run_dataframe_check(df, check, schema_cols)
+        if isinstance(check, UniqueCheck):
+            _run_unique_check(df, check)
+        else:
+            _run_dataframe_check(df, check, schema_cols)
+
+
+def _run_unique_check(df: pd.DataFrame, check: UniqueCheck) -> None:
+    """Raise with sample duplicate keys and their rows if the key columns are not unique."""
+    columns = list(check.columns)
+    # An absent NotRequiredColumn leaves no complete key to compare.
+    if not all(c in df.columns for c in columns):
+        return
+
+    keys = df.loc[:, columns]
+    duplicated = keys.duplicated(keep=False)
+    if not duplicated.any():
+        return
+
+    duplicate_keys = keys.loc[duplicated]
+    # Group by the Series rather than their names: a name shared with an index level is
+    # ambiguous to groupby. observed=True keeps unused categories out of the groups.
+    groups = duplicate_keys.groupby(
+        [duplicate_keys[c] for c in columns], dropna=False, sort=False, observed=True
+    )
+    duplicates = [
+        (
+            group.head(1).to_dict("records")[0],
+            group.index[:MAX_SAMPLE_SIZE].tolist(),
+            len(group),
+        )
+        for _, group in itertools.islice(groups, MAX_SAMPLE_SIZE)
+    ]
+    raise ValidationError.new_with_duplicate_keys(check.columns, duplicates, groups.ngroups)
 
 
 def _run_dataframe_check(df: pd.DataFrame, check: DataFrameCheck, schema_cols: list[str]) -> None:

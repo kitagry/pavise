@@ -66,3 +66,33 @@ class ValidationError(PaviseError):
             msg += f"\n\nSample invalid values (showing first {len(samples)} of {total_invalid}):"
             msg += "".join([f"\n  Row {idx}: {format_value(val)}" for idx, val in samples])
         return cls(msg, column_name=col_name, invalid_samples=samples)
+
+    @classmethod
+    def new_with_duplicate_keys(
+        cls,
+        columns: tuple[str, ...],
+        duplicates: list[tuple[dict[str, Any], list[Any], int]],
+        total_keys: int,
+    ) -> Self:
+        """
+        Create a ValidationError for a failed ``@unique`` check.
+
+        Args:
+            columns: Key columns of the check
+            duplicates: Sample duplicate keys as (key, sample row labels, number of rows)
+            total_keys: Total number of duplicate keys
+
+        ``invalid_samples`` holds a (row label, key) tuple for each sample row.
+        """
+        noun = "key" if total_keys == 1 else "keys"
+        msg = f"Columns {columns!r} must be unique, found {total_keys} duplicate {noun}"
+        msg += f"\n\nSample duplicate keys (showing first {len(duplicates)} of {total_keys}):"
+        samples: list[tuple[Any, ...]] = []
+        for key, rows, row_count in duplicates:
+            shown = ", ".join(repr(row) for row in rows)
+            if row_count > len(rows):
+                msg += f"\n  {key!r}: rows [{shown}, ...] ({row_count} rows)"
+            else:
+                msg += f"\n  {key!r}: rows [{shown}]"
+            samples.extend((row, key) for row in rows)
+        return cls(msg, invalid_samples=samples)

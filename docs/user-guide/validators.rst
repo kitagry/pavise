@@ -131,6 +131,9 @@ Error message example:
      Row 3: 2
      Row 4: 5
 
+To require a combination of columns to be unique, use the ``@unique`` class decorator
+(see :doc:`dataframe-checks`).
+
 In
 ~~
 
