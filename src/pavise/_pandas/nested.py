@@ -3,12 +3,21 @@
 from __future__ import annotations
 
 from datetime import date, datetime, timedelta
-from typing import Any, Literal, get_args, get_origin
+from typing import Any, Literal, NoReturn, get_args, get_origin
 
 import numpy as np
 import pandas as pd
 
-from pavise._annotations import Field, ListOf, Scalar, StructOf, format_field
+from pavise._annotations import (
+    Field,
+    ListOf,
+    Scalar,
+    StructOf,
+    format_field,
+    literal_base_type,
+    nested_error,
+    nested_path,
+)
 from pavise._pandas.validator_impl import MAX_SAMPLE_SIZE, _to_python_scalar
 from pavise.exceptions import ValidationError
 
@@ -46,17 +55,8 @@ def _matches(arrow_type: Any, predicate_names: tuple[str, ...]) -> bool:
     return any(getattr(pa.types, name, lambda _: False)(arrow_type) for name in predicate_names)
 
 
-def _error(message: str, column_name: str, path: str) -> ValidationError:
-    return ValidationError(message, column_name=column_name, path=_nested_path(column_name, path))
-
-
-def _nested_path(column_name: str, path: str) -> str | None:
-    """The path to report, or None when the column itself failed."""
-    return path if path != column_name else None
-
-
 def check_nested_column(field: Field, series: pd.Series, column_name: str, strict: bool) -> None:
-    """Check a List or Struct column's dtype level by level, then its nulls."""
+    """Check a List or Struct column's dtype level by level, then its values."""
     arrow_type = getattr(series.dtype, "pyarrow_dtype", None)
     if arrow_type is None:
         raise ValidationError(
@@ -71,7 +71,7 @@ def check_nested_column(field: Field, series: pd.Series, column_name: str, stric
     if isinstance(values, pa.ChunkedArray):
         values = values.combine_chunks()
     positions = np.arange(len(series))
-    _check_nulls(field, values, positions, series, values, column_name, column_name)
+    _check_values(field, values, positions, series, values, column_name, column_name)
 
 
 def _check_type(
@@ -88,12 +88,12 @@ def _check_type(
     node = field.node
     if isinstance(node, ListOf):
         if not _matches(arrow_type, _LIST_PREDICATES):
-            raise _error(f"expected {format_field(field)}, got {shown}", column_name, path)
+            raise nested_error(f"expected {format_field(field)}, got {shown}", column_name, path)
         element_type = arrow_type.value_type
         _check_type(node.element, element_type, str(element_type), column_name, f"{path}[]", strict)
     elif isinstance(node, StructOf):
         if not pa.types.is_struct(arrow_type):
-            raise _error(f"expected {format_field(field)}, got {shown}", column_name, path)
+            raise nested_error(f"expected {format_field(field)}, got {shown}", column_name, path)
         actual = {
             arrow_type.field(i).name: arrow_type.field(i).type for i in range(arrow_type.num_fields)
         }
@@ -101,7 +101,7 @@ def _check_type(
             if name not in actual:
                 if sub.not_required:
                     continue
-                raise _error(
+                raise nested_error(
                     f"missing struct field '{name}' (found fields: {list(actual)})",
                     column_name,
                     path,
@@ -110,7 +110,7 @@ def _check_type(
             _check_type(sub, sub_type, str(sub_type), column_name, f"{path}.{name}", strict)
         extra = sorted(set(actual) - set(node.fields))
         if strict and extra:
-            raise _error(f"Strict mode: unexpected struct fields {extra}", column_name, path)
+            raise nested_error(f"Strict mode: unexpected struct fields {extra}", column_name, path)
     else:
         _check_scalar_type(node, arrow_type, shown, column_name, path)
 
@@ -118,21 +118,36 @@ def _check_type(
 def _check_scalar_type(
     node: Scalar, arrow_type: Any, shown: str, column_name: str, path: str
 ) -> None:
-    expected = node.type
-    if get_origin(expected) is Literal:
-        literal_args = get_args(expected)
-        expected = type(literal_args[0]) if literal_args else Any
-
+    expected = literal_base_type(node.type)
     if expected is Any:
         return
     name = getattr(expected, "__name__", str(expected))
     if expected not in _ARROW_PREDICATES:
-        raise _error(f"unsupported type: {name}", column_name, path)
+        raise nested_error(f"unsupported type: {name}", column_name, path)
     if not _matches(arrow_type, _ARROW_PREDICATES[expected]):
-        raise _error(f"expected {name}, got {shown}", column_name, path)
+        raise nested_error(f"expected {name}, got {shown}", column_name, path)
 
 
-def _check_nulls(
+def _raise_for_positions(
+    message: str,
+    positions: np.ndarray,
+    series: pd.Series,
+    column: Any,
+    column_name: str,
+    path: str,
+) -> NoReturn:
+    """Raise for the values found at row ``positions``, showing the whole rows as samples."""
+    invalid_positions: list[int] = np.unique(positions).tolist()
+    samples: list[tuple[Any, ...]] = [
+        (_to_python_scalar(series.index[pos]), column[pos].as_py())
+        for pos in invalid_positions[:MAX_SAMPLE_SIZE]
+    ]
+    raise ValidationError.new_with_samples(
+        column_name, message, samples, len(invalid_positions), path=nested_path(column_name, path)
+    )
+
+
+def _check_values(
     field: Field,
     values: Any,
     positions: np.ndarray,
@@ -142,7 +157,7 @@ def _check_nulls(
     path: str,
 ) -> None:
     """
-    Check nulls of ``values``, the Arrow values found at ``path``.
+    Check nulls and Literal values of ``values``, the Arrow values found at ``path``.
 
     ``positions`` holds the row position each value comes from, so errors can show the whole
     row (``column`` is the column as an Arrow array, ``series`` gives the row labels).
@@ -151,31 +166,26 @@ def _check_nulls(
     import pyarrow.compute as pc
 
     is_null = values.is_null().to_numpy(zero_copy_only=False)
-    if not field.nullable and is_null.any():
-        # Positions never decrease, since flattening keeps the row order
-        invalid_positions: list[int] = np.unique(positions[is_null]).tolist()
-        samples: list[tuple[Any, ...]] = [
-            (_to_python_scalar(series.index[pos]), column[pos].as_py())
-            for pos in invalid_positions[:MAX_SAMPLE_SIZE]
-        ]
-        raise ValidationError.new_with_samples(
-            column_name,
-            "is non-optional but contains null values",
-            samples,
-            len(invalid_positions),
-            path=_nested_path(column_name, path),
-        )
-
-    keep = ~is_null
-    values = values.filter(pa.array(keep))
-    positions = positions[keep]
+    if is_null.any():
+        if not field.nullable:
+            _raise_for_positions(
+                "is non-optional but contains null values",
+                positions[is_null],
+                series,
+                column,
+                column_name,
+                path,
+            )
+        keep = ~is_null
+        values = values.filter(pa.array(keep))
+        positions = positions[keep]
     if pa.types.is_null(values.type):
         return
 
     node = field.node
     if isinstance(node, ListOf):
         parents = pc.call_function("list_parent_indices", [values])
-        _check_nulls(
+        _check_values(
             node.element,
             pc.call_function("list_flatten", [values]),
             positions[parents.to_numpy(zero_copy_only=False)],
@@ -188,7 +198,7 @@ def _check_nulls(
         present = {values.type.field(i).name for i in range(values.type.num_fields)}
         for name, sub in node.fields.items():
             if name in present:
-                _check_nulls(
+                _check_values(
                     sub,
                     pc.call_function(
                         "struct_field",
@@ -201,6 +211,21 @@ def _check_nulls(
                     column_name,
                     f"{path}.{name}",
                 )
+    elif get_origin(node.type) is Literal:
+        allowed = get_args(node.type)
+        non_null = [v for v in allowed if v is not None]
+        value_set = pa.array(non_null) if non_null else pa.array([], type=values.type)
+        in_set = pc.call_function("is_in", [values], pc.SetLookupOptions(value_set))
+        invalid = ~in_set.to_numpy(zero_copy_only=False)
+        if invalid.any():
+            _raise_for_positions(
+                f"expected one of {allowed}, got invalid values",
+                positions[invalid],
+                series,
+                column,
+                column_name,
+                path,
+            )
 
 
 def nested_dtype(field: Field) -> pd.ArrowDtype:
@@ -217,10 +242,6 @@ def _arrow_type(field: Field) -> Any:
     if isinstance(node, StructOf):
         return pa.struct([(name, _arrow_type(sub)) for name, sub in node.fields.items()])
 
-    base_type = node.type
-    if get_origin(base_type) is Literal:
-        literal_args = get_args(base_type)
-        base_type = type(literal_args[0]) if literal_args else Any
     return {
         int: pa.int64(),
         float: pa.float64(),
@@ -228,4 +249,4 @@ def _arrow_type(field: Field) -> Any:
         datetime: pa.timestamp("ns"),
         date: pa.date32(),
         timedelta: pa.duration("ns"),
-    }.get(base_type, pa.string())
+    }.get(literal_base_type(node.type), pa.string())

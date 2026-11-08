@@ -1,8 +1,9 @@
-from typing import Annotated, Any, Protocol
+from typing import Annotated, Any, Literal, Protocol
 
 import polars as pl
 import pytest
 
+from pavise.checks import dataframe_check
 from pavise.exceptions import ValidationError
 from pavise.polars import DataFrame, LazyFrame
 from pavise.types import NotRequiredColumn
@@ -312,3 +313,45 @@ def test_dtype_instance_as_list_element() -> None:
     df = pl.DataFrame({"values": [[1]]}, schema={"values": pl.List(pl.Int64)})
     with pytest.raises(ValidationError, match=r"Column 'values\[\]': expected Int32, got Int64"):
         DataFrame[Schema](df)
+
+
+class RolesSchema(Protocol):
+    roles: list[Literal["admin", "staff"]]
+
+
+def test_literal_inside_list_rejects_values_outside_literal() -> None:
+    df = pl.DataFrame({"roles": [["admin"], ["staff", "guest"]]})
+    with pytest.raises(ValidationError) as exc_info:
+        DataFrame[RolesSchema](df)
+    assert str(exc_info.value) == (
+        "Column 'roles[]': expected one of ('admin', 'staff'), got invalid values\n\n"
+        "Sample invalid values (showing first 1 of 1):\n"
+        "  Row 1: ['staff', 'guest']"
+    )
+
+
+def test_literal_inside_list_accepts_values_in_literal() -> None:
+    result = DataFrame[RolesSchema](pl.DataFrame({"roles": [["admin"], ["staff"], []]}))
+    assert isinstance(result, pl.DataFrame)
+
+
+def test_literal_with_none_inside_list_accepts_nulls() -> None:
+    class Schema(Protocol):
+        roles: list[Literal["admin", None]]
+
+    result = DataFrame[Schema](pl.DataFrame({"roles": [["admin", None]]}))
+    assert isinstance(result, pl.DataFrame)
+
+
+def test_dataframe_check_on_nested_protocol_is_ignored() -> None:
+    """dataframe_check runs on whole DataFrames, so a Protocol used as a struct skips it"""
+
+    @dataframe_check(lambda df: df["city"] != "", name="city_not_empty")
+    class CheckedAddress(Protocol):
+        city: str
+
+    class Schema(Protocol):
+        address: CheckedAddress
+
+    result = DataFrame[Schema](pl.DataFrame({"address": [{"city": ""}]}))
+    assert isinstance(result, pl.DataFrame)

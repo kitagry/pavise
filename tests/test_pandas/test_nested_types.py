@@ -1,4 +1,4 @@
-from typing import Annotated, Any, Protocol
+from typing import Annotated, Any, Literal, Protocol
 
 import pandas as pd
 import pytest
@@ -263,3 +263,42 @@ def test_arrow_dtype_instance_annotation_rejects_different_dtype() -> None:
 def test_arrow_dtype_instance_annotation_in_make_empty() -> None:
     (dtype,) = DataFrame[ArrowInstanceSchema].make_empty().dtypes
     assert dtype == pd.ArrowDtype(pa.list_(pa.string()))
+
+
+class RolesSchema(Protocol):
+    roles: list[Literal["admin", "staff"]]
+
+
+def test_literal_inside_list_rejects_values_outside_literal() -> None:
+    df = arrow_frame("roles", [["admin"], ["staff", "guest"]], pa.list_(pa.string()))
+    with pytest.raises(ValidationError) as exc_info:
+        DataFrame[RolesSchema](df)
+    assert str(exc_info.value) == (
+        "Column 'roles[]': expected one of ('admin', 'staff'), got invalid values\n\n"
+        "Sample invalid values (showing first 1 of 1):\n"
+        "  Row 1: ['staff', 'guest']"
+    )
+
+
+def test_literal_inside_list_accepts_values_in_literal() -> None:
+    df = arrow_frame("roles", [["admin"], ["staff"], []], pa.list_(pa.string()))
+    result = DataFrame[RolesSchema](df)
+    assert isinstance(result, pd.DataFrame)
+
+
+def test_literal_inside_list_matches_narrow_integer_type() -> None:
+    class Schema(Protocol):
+        codes: list[Literal[1, 2]]
+
+    df = arrow_frame("codes", [[1], [3]], pa.list_(pa.int8()))
+    with pytest.raises(ValidationError, match=r"Column 'codes\[\]': expected one of \(1, 2\)"):
+        DataFrame[Schema](df)
+
+
+def test_literal_with_none_inside_list_accepts_nulls() -> None:
+    class Schema(Protocol):
+        roles: list[Literal["admin", None]]
+
+    df = arrow_frame("roles", [["admin", None]], pa.list_(pa.string()))
+    result = DataFrame[Schema](df)
+    assert isinstance(result, pd.DataFrame)

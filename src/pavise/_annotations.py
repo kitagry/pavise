@@ -133,6 +133,34 @@ def parse_annotation(annotation: Any, column_name: str) -> Field:
     return _parse(annotation, column_name, allow_not_required=True, seen=frozenset())
 
 
+def parse_nested_column(annotation: Any, column_name: str) -> Field:
+    """Parse a List or Struct column for validation, rejecting validators no backend runs yet."""
+    field = parse_annotation(annotation, column_name)
+    if field.has_validators():
+        raise ValidationError(
+            "validators on list and struct columns are not supported yet",
+            column_name=column_name,
+        )
+    return field
+
+
+def literal_base_type(t: Any) -> Any:
+    """The type of a Literal's values (str for ``Literal["a"]``), or ``t`` if it is no Literal."""
+    if get_origin(t) is not Literal:
+        return t
+    values = [v for v in get_args(t) if v is not None]
+    return type(values[0]) if values else Any
+
+
+def nested_path(column_name: str, path: str) -> str | None:
+    """The path to report, or None when the column itself failed."""
+    return path if path != column_name else None
+
+
+def nested_error(message: str, column_name: str, path: str) -> ValidationError:
+    return ValidationError(message, column_name=column_name, path=nested_path(column_name, path))
+
+
 def _parse(
     annotation: Any, column_name: str, *, allow_not_required: bool, seen: frozenset[type]
 ) -> Field:
@@ -172,6 +200,9 @@ def _parse(
         )
     else:
         node = Scalar(base_type)
+        # A top-level Literal column accepts nulls when None is one of its values
+        if get_origin(base_type) is Literal and None in get_args(base_type):
+            nullable = True
     return Field(node, tuple(validators), nullable, not_required)
 
 

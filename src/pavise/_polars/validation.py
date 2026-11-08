@@ -19,10 +19,9 @@ except ImportError:
     raise ImportError("Polars is not installed. Install it with: pip install pavise[polars]")
 
 from pavise._annotations import (
-    Field,
     _extract_type_and_validators,
     is_nested_type,
-    parse_annotation,
+    parse_nested_column,
 )
 from pavise._polars.dtypes import (
     TYPE_CHECKERS,
@@ -31,7 +30,7 @@ from pavise._polars.dtypes import (
     dtype_name,
     is_dtype_annotation,
 )
-from pavise._polars.nested import check_nested_dtype, check_nested_nulls
+from pavise._polars.nested import check_nested_dtype, check_nested_values
 from pavise._polars.validator_impl import (
     BOUND_VALIDATORS,
     MAX_SAMPLE_SIZE,
@@ -202,7 +201,7 @@ def _check_lazyframe_column_type(
     col_dtype = lf_schema[col_name]
 
     if is_nested_type(base_type):
-        field = _parse_nested_column(expected_type, col_name)
+        field = parse_nested_column(expected_type, col_name)
         check_nested_dtype(field, col_dtype, col_name, strict)
         return
 
@@ -306,15 +305,6 @@ def _check_column_exists(df: pl.DataFrame, col_name: str) -> None:
         raise ValidationError("missing", column_name=col_name)
 
 
-def _parse_nested_column(expected_type: type, col_name: str) -> Field:
-    field = parse_annotation(expected_type, col_name)
-    if field.has_validators():
-        raise ValidationError(
-            "validators on list and struct columns are not supported yet", column_name=col_name
-        )
-    return field
-
-
 def _check_column_type(df: pl.DataFrame, col_name: str, expected_type: type, strict: bool) -> None:
     """Check if a column has the expected type and apply validators."""
     base_type, validators, is_optional, _is_not_required = _extract_type_and_validators(
@@ -322,9 +312,9 @@ def _check_column_type(df: pl.DataFrame, col_name: str, expected_type: type, str
     )
 
     if is_nested_type(base_type):
-        field = _parse_nested_column(expected_type, col_name)
+        field = parse_nested_column(expected_type, col_name)
         check_nested_dtype(field, df[col_name].dtype, col_name, strict)
-        check_nested_nulls(field, df[col_name], col_name)
+        check_nested_values(field, df[col_name], col_name)
         return
 
     if is_dtype_annotation(base_type):

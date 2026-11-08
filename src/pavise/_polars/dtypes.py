@@ -5,9 +5,11 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
-from typing import Any, Literal, get_args, get_origin
+from typing import Any
 
 import polars as pl
+
+from pavise._annotations import literal_base_type
 
 
 @dataclass
@@ -95,10 +97,7 @@ def dtype_for_type(base_type: Any) -> pl.DataType:
     # Union types (represented as tuple) use the first type
     if isinstance(base_type, tuple):
         base_type = base_type[0]
-    if get_origin(base_type) is Literal:
-        literal_values = get_args(base_type)
-        if literal_values:
-            base_type = type(literal_values[0])
+    base_type = literal_base_type(base_type)
     if isinstance(base_type, pl.DataType):
         return base_type
     if isinstance(base_type, type) and issubclass(base_type, pl.DataType):

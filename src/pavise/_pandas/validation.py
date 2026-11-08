@@ -20,7 +20,7 @@ from typing import (
 import numpy as np
 import pandas as pd
 
-from pavise._annotations import _extract_type_and_validators, is_nested_type, parse_annotation
+from pavise._annotations import _extract_type_and_validators, is_nested_type, parse_nested_column
 from pavise._pandas.nested import check_nested_column
 from pavise._pandas.validator_impl import (
     MAX_SAMPLE_SIZE,
@@ -447,12 +447,7 @@ def _check_column_type(df: pd.DataFrame, col_name: str, expected_type: type, str
     col_series: pd.Series = df[col_name]  # type: ignore[assignment]
 
     if is_nested_type(base_type):
-        field = parse_annotation(expected_type, col_name)
-        if field.has_validators():
-            raise ValidationError(
-                "validators on list and struct columns are not supported yet",
-                column_name=col_name,
-            )
+        field = parse_nested_column(expected_type, col_name)
         if not (is_optional and _is_untyped_all_null(col_series)):
             check_nested_column(field, col_series, col_name, strict)
         return

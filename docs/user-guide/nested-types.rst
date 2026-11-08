@@ -37,6 +37,7 @@ Pavise checks each level of a nested column:
 * That the column, the list elements and the struct fields hold no nulls unless they are
   ``Optional``. A null struct row is checked as the column's value only, so the fields of a
   null struct are not reported as null
+* That list elements and struct fields annotated with ``Literal`` hold only its values
 
 Mark a struct field that may be absent with ``NotRequiredColumn``:
 
@@ -52,6 +53,10 @@ Mark a struct field that may be absent with ``NotRequiredColumn``:
 
    Validators such as ``Range`` or ``MinLen`` cannot be used inside or on list and struct
    columns yet. Pavise raises ``ValidationError`` for them instead of skipping them silently.
+
+``@dataframe_check`` checks run on whole DataFrames, so checks attached to a ``Protocol`` used as
+a struct are not run on the struct values. They still run when the ``Protocol`` is used as a
+DataFrame schema itself.
 
 Supported Dtypes
 ----------------
