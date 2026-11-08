@@ -49,10 +49,63 @@ Mark a struct field that may be absent with ``NotRequiredColumn``:
        city: str
        zip: NotRequiredColumn[str]
 
-.. note::
+Validators
+----------
 
-   Validators such as ``Range`` or ``MinLen`` cannot be used inside or on list and struct
-   columns yet. Pavise raises ``ValidationError`` for them instead of skipping them silently.
+Validators apply to the type they are written on. ``list[Annotated[int, Range(0, 100)]]``
+checks every element, ``Annotated[list[int], MinLen(1)]`` checks the list itself, and a
+validator on a field of the nested ``Protocol`` checks that field of every struct:
+
+.. code-block:: python
+
+   from typing import Annotated
+   from pavise.exceptions import ValidationError
+   from pavise.validators import Custom, MinLen, Range, Regex
+
+   class CheckedAddress(Protocol):
+       city: str
+       zip: Annotated[str, Regex(r"\d{3}-\d{4}")]
+
+   class OrderSchema(Protocol):
+       scores: list[Annotated[int, Range(0, 100)]]   # each element
+       items: Annotated[list[int], MinLen(1)]        # the list's length
+       history: list[CheckedAddress]                 # each struct's zip
+
+   df = pl.DataFrame({
+       "scores": [[50], [50, 120]],
+       "items": [[1], [2, 3]],
+       "history": [[{"city": "Tokyo", "zip": "100-0001"}], []],
+   })
+   try:
+       DataFrame[OrderSchema](df)
+   except ValidationError as e:
+       print(e)
+
+Output:
+
+.. example-output
+
+.. code-block:: text
+
+   Column 'scores[]': values must be in range [0, 100]
+
+   Sample invalid values (showing first 1 of 1):
+     Row 1: 120 (in [50, 120])
+
+Each sample shows the rejected value and, in parentheses, the whole row it was found in.
+
+On a list itself, only ``MinLen`` and ``MaxLen`` (which check the number of elements) and
+``Custom`` can be used. On a struct itself, only ``Custom`` can be used. ``Custom`` receives the
+row's value as a Python ``list`` or ``dict``:
+
+.. code-block:: python
+
+   class TotalSchema(Protocol):
+       items: Annotated[list[int], Custom(lambda items: sum(items) <= 10, "sum must be <= 10")]
+
+``Unique`` cannot be used inside list and struct columns, since it would be unclear whether
+values must be unique within a list or across rows. Pavise raises ``ValidationError`` for these
+when it checks the schema, instead of skipping them silently.
 
 ``@dataframe_check`` checks run on whole DataFrames, so checks attached to a ``Protocol`` used as
 a struct are not run on the struct values. They still run when the ``Protocol`` is used as a

@@ -116,10 +116,13 @@ class Regex:
 
 @dataclass(unsafe_hash=True)
 class MinLen:
-    """Validate that string values have a minimum length.
+    """Validate that string values, or lists, have a minimum length.
+
+    On a list column the length is the number of elements.
 
     Example:
         username: Annotated[str, MinLen(3)]
+        tags: Annotated[list[str], MinLen(1)]
     """
 
     min_length: int
@@ -127,10 +130,13 @@ class MinLen:
 
 @dataclass(unsafe_hash=True)
 class MaxLen:
-    """Validate that string values have a maximum length.
+    """Validate that string values, or lists, have a maximum length.
+
+    On a list column the length is the number of elements.
 
     Example:
         username: Annotated[str, MaxLen(20)]
+        tags: Annotated[list[str], MaxLen(10)]
     """
 
     max_length: int

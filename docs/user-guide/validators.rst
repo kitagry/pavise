@@ -210,7 +210,8 @@ Error message example:
 MinLen / MaxLen
 ~~~~~~~~~~~~~~~
 
-Validates string length constraints.
+Validates string length constraints. On a list column (``Annotated[list[int], MinLen(1)]``),
+they check the number of elements instead (see :doc:`nested-types`).
 
 .. code-block:: python
 
