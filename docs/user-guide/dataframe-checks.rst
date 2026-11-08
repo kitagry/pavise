@@ -165,6 +165,16 @@ index labels, or row numbers for polars). ``error.invalid_samples`` holds a
   runs in the same order and is inherited the same way.
 - If a ``NotRequiredColumn`` key column is absent, the check is skipped.
 
+.. note::
+
+   Like ``@dataframe_check`` and column validators, ``@unique`` is not part of the type.
+   It is only checked at runtime, by ``DataFrame[Schema](df)`` or by ``collect()`` on a
+   polars ``LazyFrame``. ``@unique`` returns the class unchanged and the type parameter
+   of ``DataFrame`` is covariant, so a type checker accepts a ``DataFrame`` of another
+   Protocol with the same columns where ``DataFrame[DailyStepsSchema]`` is expected, and
+   the other way around. A DataFrame typed with ``DailyStepsSchema`` is unique only if
+   it went through that runtime validation.
+
 When Checks Run
 ---------------
 
