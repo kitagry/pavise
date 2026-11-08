@@ -1,0 +1,208 @@
+Nested Types
+============
+
+Columns can hold lists and structs. Write a list column as ``list[X]`` and a struct column
+as a nested ``Protocol``:
+
+.. code-block:: python
+
+   from typing import Protocol
+
+   import polars as pl
+   from pavise.polars import DataFrame
+
+   class Address(Protocol):
+       city: str
+       zip: str
+
+   class UserSchema(Protocol):
+       tags: list[str]                     # List
+       address: Address                    # Struct
+       history: list[Address]              # List of Structs
+       nickname: list[str | None] | None   # Optional elements in an Optional column
+
+   df = pl.DataFrame({
+       "tags": [["admin", "staff"], []],
+       "address": [{"city": "Tokyo", "zip": "100-0001"}, {"city": "Osaka", "zip": "530-0001"}],
+       "history": [[], [{"city": "Kyoto", "zip": "600-8001"}]],
+       "nickname": [["Al", None], None],
+   })
+   validated_df = DataFrame[UserSchema](df)
+
+Pavise checks each level of a nested column:
+
+* The dtype of the column, the list elements and the struct fields
+* That every field of the nested ``Protocol`` exists in the struct. Extra struct fields are
+  allowed, unless ``strict=True`` is passed (see :doc:`strict-mode`)
+* That the column, the list elements and the struct fields hold no nulls unless they are
+  ``Optional``. A null struct row is checked as the column's value only, so the fields of a
+  null struct are not reported as null
+
+Mark a struct field that may be absent with ``NotRequiredColumn``:
+
+.. code-block:: python
+
+   from pavise.types import NotRequiredColumn
+
+   class PartialAddress(Protocol):
+       city: str
+       zip: NotRequiredColumn[str]
+
+.. note::
+
+   Validators such as ``Range`` or ``MinLen`` cannot be used inside or on list and struct
+   columns yet. Pavise raises ``ValidationError`` for them instead of skipping them silently.
+
+Supported Dtypes
+----------------
+
+.. list-table::
+   :header-rows: 1
+
+   * - Annotation
+     - polars
+     - pandas
+   * - ``list[X]``
+     - ``pl.List`` or ``pl.Array``
+     - ``pd.ArrowDtype`` of a pyarrow list, large list or fixed size list
+   * - Nested ``Protocol``
+     - ``pl.Struct``
+     - ``pd.ArrowDtype`` of a pyarrow struct
+
+A list whose element dtype is ``Null`` (for example ``pl.List(pl.Null)``, which polars infers
+from empty lists) is accepted for any element type.
+
+pandas supports nested columns only as ``pd.ArrowDtype`` (pyarrow is required). An ``object``
+column holding Python lists or dicts is rejected:
+
+.. example-setup
+
+   import pandas as pd
+
+.. code-block:: python
+
+   from pavise.pandas import DataFrame as PandasDataFrame
+   from pavise.exceptions import ValidationError
+
+   class TagsSchema(Protocol):
+       tags: list[str]
+
+   try:
+       PandasDataFrame[TagsSchema](pd.DataFrame({"tags": [["a"], ["b"]]}))
+   except ValidationError as e:
+       print(e)
+
+Output:
+
+.. example-output
+
+.. code-block:: text
+
+   Column 'tags': expected list[str], got object
+     (pavise checks list and struct columns only with pd.ArrowDtype, e.g. dtype=pd.ArrowDtype(pa.list_(pa.string())))
+
+Store the column as ``pd.ArrowDtype`` instead:
+
+.. code-block:: python
+
+   import pyarrow as pa
+
+   df = pd.DataFrame(
+       {"tags": pd.Series([["a"], ["b"]], dtype=pd.ArrowDtype(pa.list_(pa.string())))}
+   )
+   validated_df = PandasDataFrame[TagsSchema](df)
+
+Error Messages
+--------------
+
+An error inside a nested column names where it is, with ``[]`` for list elements and
+``.name`` for struct fields. ``ValidationError.column_name`` stays the column's name, and
+``ValidationError.path`` holds the path:
+
+.. code-block:: python
+
+   class HistorySchema(Protocol):
+       history: list[Address]
+
+   df = pl.DataFrame({"history": [[{"city": "Tokyo", "zip": 1000001}]]})
+   try:
+       DataFrame[HistorySchema](df)
+   except ValidationError as e:
+       print(e)
+       print(e.column_name, e.path)
+
+Output:
+
+.. example-output
+
+.. code-block:: text
+
+   Column 'history[].zip': expected str, got Int64
+   history history[].zip
+
+Null values show the whole row they are found in:
+
+.. code-block:: python
+
+   df = pl.DataFrame({"tags": [["a", None], ["b"], [None]]})
+   try:
+       DataFrame[UserSchema](df.with_columns(
+           address=pl.lit({"city": "Tokyo", "zip": "100-0001"}),
+           history=pl.lit([], dtype=pl.List(pl.Struct({"city": pl.Utf8, "zip": pl.Utf8}))),
+           nickname=pl.lit(None),
+       ))
+   except ValidationError as e:
+       print(e)
+
+Output:
+
+.. example-output
+
+.. code-block:: text
+
+   Column 'tags[]': is non-optional but contains null values
+
+   Sample invalid values (showing first 2 of 2):
+     Row 0: ['a', None]
+     Row 2: [None]
+
+A missing struct field:
+
+.. code-block:: python
+
+   class AddressSchema(Protocol):
+       address: Address
+
+   df = pl.DataFrame({"address": [{"city": "Tokyo"}]})
+   try:
+       DataFrame[AddressSchema](df)
+   except ValidationError as e:
+       print(e)
+
+Output:
+
+.. example-output
+
+.. code-block:: text
+
+   Column 'address': missing struct field 'zip' (found fields: ['city'])
+
+Dtype Annotations
+-----------------
+
+Nested dtypes can also be written as dtype instances, which must then match exactly:
+
+.. code-block:: python
+
+   class DtypeSchema(Protocol):
+       tags: pl.List(pl.Utf8)
+       pair: pl.Array(pl.Int64, 2)
+
+   df = pl.DataFrame({
+       "tags": [["a"]],
+       "pair": pl.Series([[1, 2]], dtype=pl.Array(pl.Int64, 2)),
+   })
+   validated_df = DataFrame[DtypeSchema](df)
+
+For pandas, use ``pd.ArrowDtype(...)`` instances such as
+``pd.ArrowDtype(pa.list_(pa.string()))``.

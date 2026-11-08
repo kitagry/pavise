@@ -10,6 +10,7 @@ This guide covers all features of Pavise in detail.
    pandas-backend
    polars-backend
    validators
+   nested-types
    dataframe-checks
    strict-mode
    error-messages

@@ -79,6 +79,10 @@ You can use pandas extension dtypes directly:
 
 This gives you more control over the exact dtype used.
 
+Dtype instances such as ``pd.ArrowDtype(pa.list_(pa.string()))`` can be written as well, which
+the column's dtype must equal. For list and struct columns, ``list[X]`` and nested ``Protocol``
+schemas are usually more convenient (see :doc:`nested-types`).
+
 Index Validation
 ----------------
 
