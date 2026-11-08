@@ -12,11 +12,14 @@ from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 from typing import Any, TypeAlias
 
+# Validators are hashable because Python 3.10 hashes Annotated metadata when deduplicating
+# the members of a union such as Annotated[int, Range(0, 10)] | None.
+
 # Every bound type the backends can order a numeric or temporal column against
 Bound: TypeAlias = float | Decimal | date | datetime | time | timedelta
 
 
-@dataclass
+@dataclass(unsafe_hash=True)
 class Range:
     """Validate that numeric or temporal values are within a specified range.
 
@@ -29,7 +32,7 @@ class Range:
     max: Bound
 
 
-@dataclass
+@dataclass(unsafe_hash=True)
 class Ge:
     """Validate that numeric or temporal values are greater than or equal to a bound.
 
@@ -41,7 +44,7 @@ class Ge:
     value: Bound
 
 
-@dataclass
+@dataclass(unsafe_hash=True)
 class Gt:
     """Validate that numeric or temporal values are strictly greater than a bound.
 
@@ -52,7 +55,7 @@ class Gt:
     value: Bound
 
 
-@dataclass
+@dataclass(unsafe_hash=True)
 class Le:
     """Validate that numeric or temporal values are less than or equal to a bound.
 
@@ -63,7 +66,7 @@ class Le:
     value: Bound
 
 
-@dataclass
+@dataclass(unsafe_hash=True)
 class Lt:
     """Validate that numeric or temporal values are strictly less than a bound.
 
@@ -74,7 +77,7 @@ class Lt:
     value: Bound
 
 
-@dataclass
+@dataclass(unsafe_hash=True)
 class Unique:
     """Validate that column values are unique (no duplicates).
 
@@ -93,8 +96,11 @@ class In:
 
     allowed_values: list
 
+    def __hash__(self) -> int:
+        return hash(tuple(self.allowed_values))
 
-@dataclass
+
+@dataclass(unsafe_hash=True)
 class Regex:
     r"""Validate that string values match a regular expression pattern.
 
@@ -108,7 +114,7 @@ class Regex:
     pattern: str
 
 
-@dataclass
+@dataclass(unsafe_hash=True)
 class MinLen:
     """Validate that string values have a minimum length.
 
@@ -119,7 +125,7 @@ class MinLen:
     min_length: int
 
 
-@dataclass
+@dataclass(unsafe_hash=True)
 class MaxLen:
     """Validate that string values have a maximum length.
 
@@ -130,7 +136,7 @@ class MaxLen:
     max_length: int
 
 
-@dataclass
+@dataclass(unsafe_hash=True)
 class Custom:
     """Validate using a custom validation function.
 
