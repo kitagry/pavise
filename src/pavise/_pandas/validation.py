@@ -262,6 +262,7 @@ def _extract_type_and_validators(
         - For Annotated[int, Range(0, 100)]: (int, [Range(0, 100)], False, False)
         - For int: (int, [], False, False)
         - For Optional[int]: (int, [], True, False)
+        - For Annotated[int, Range(0, 100)] | None: (int, [Range(0, 100)], True, False)
         - For NotRequiredColumn[int]: (int, [], False, True)
         - For NotRequiredColumn[Optional[int]]: (int, [], True, True)
         - For Union[int, str]: ((int, str), [], False, False)
@@ -293,6 +294,10 @@ def _extract_type_and_validators(
             # If only one type remains after removing None, return it as a single type
             if len(non_none_types) == 1:
                 base_type = non_none_types[0]
+                # Annotated[T, ...] | None puts the validators inside the union
+                if get_origin(base_type) is Annotated:
+                    base_type, *inner_validators = get_args(base_type)
+                    validators.extend(inner_validators)
                 return base_type, validators, is_optional, is_not_required
             # Otherwise, return the tuple of types
             return non_none_types, validators, is_optional, is_not_required

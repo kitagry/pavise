@@ -259,6 +259,24 @@ def test_comparison_validator_ignores_null_in_optional_column():
     assert isinstance(result, pd.DataFrame)
 
 
+class OptionalOutsideAnnotatedSchema(Protocol):
+    score: Annotated[int, Range(0, 10)] | None
+
+
+def test_validator_applies_when_optional_wraps_annotated():
+    """Annotated[T, ...] | None means the same as Annotated[T | None, ...]"""
+    df = pd.DataFrame({"score": pd.array([1, None, 20], dtype="Int64")})
+    with pytest.raises(ValidationError, match="score.*range"):
+        DataFrame[OptionalOutsideAnnotatedSchema](df)
+
+
+def test_optional_wrapping_annotated_accepts_nulls():
+    """The None outside Annotated makes the column nullable"""
+    df = pd.DataFrame({"score": pd.array([1, None, 10], dtype="Int64")})
+    result = DataFrame[OptionalOutsideAnnotatedSchema](df)
+    assert isinstance(result, pd.DataFrame)
+
+
 class StrictGe(Ge):
     pass
 
