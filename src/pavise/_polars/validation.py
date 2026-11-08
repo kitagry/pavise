@@ -62,7 +62,7 @@ def validate_dataframe(df: pl.DataFrame, schema: type, strict: bool = False) -> 
         if is_not_required and col_name not in df.columns:
             continue
         _check_column_exists(df, col_name)
-        _check_column_type(df, col_name, col_type, strict)
+        _check_column_type(df, col_name, col_type, schema, strict)
 
     schema_cols = [c for c in expected_cols if c in df.columns]
     if strict:
@@ -174,7 +174,7 @@ def validate_lazyframe_schema(lf: pl.LazyFrame, schema: type, strict: bool = Fal
         if is_not_required and col_name not in lf_schema.names():
             continue
         _check_lazyframe_column_exists(lf_schema, col_name)
-        _check_lazyframe_column_type(lf_schema, col_name, col_type, strict)
+        _check_lazyframe_column_type(lf_schema, col_name, col_type, schema, strict)
 
     if strict:
         schema_cols = set(expected_cols.keys())
@@ -191,7 +191,7 @@ def _check_lazyframe_column_exists(lf_schema: pl.Schema, col_name: str) -> None:
 
 
 def _check_lazyframe_column_type(
-    lf_schema: pl.Schema, col_name: str, expected_type: type, strict: bool
+    lf_schema: pl.Schema, col_name: str, expected_type: type, schema: type, strict: bool
 ) -> None:
     """Check if a column has the expected type (schema-level only, no value validation)."""
     base_type, validators, _is_optional, _is_not_required = _extract_type_and_validators(
@@ -201,7 +201,7 @@ def _check_lazyframe_column_type(
     col_dtype = lf_schema[col_name]
 
     if is_nested_type(base_type):
-        field = parse_nested_column(expected_type, col_name)
+        field = parse_nested_column(expected_type, col_name, schema)
         check_nested_dtype(field, col_dtype, col_name, strict)
         return
 
@@ -305,14 +305,16 @@ def _check_column_exists(df: pl.DataFrame, col_name: str) -> None:
         raise ValidationError("missing", column_name=col_name)
 
 
-def _check_column_type(df: pl.DataFrame, col_name: str, expected_type: type, strict: bool) -> None:
+def _check_column_type(
+    df: pl.DataFrame, col_name: str, expected_type: type, schema: type, strict: bool
+) -> None:
     """Check if a column has the expected type and apply validators."""
     base_type, validators, is_optional, _is_not_required = _extract_type_and_validators(
         expected_type
     )
 
     if is_nested_type(base_type):
-        field = parse_nested_column(expected_type, col_name)
+        field = parse_nested_column(expected_type, col_name, schema)
         check_nested_dtype(field, df[col_name].dtype, col_name, strict)
         check_nested_values(field, df[col_name], col_name)
         return

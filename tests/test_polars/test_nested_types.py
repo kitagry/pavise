@@ -355,3 +355,14 @@ def test_dataframe_check_on_nested_protocol_is_ignored() -> None:
 
     result = DataFrame[Schema](pl.DataFrame({"address": [{"city": ""}]}))
     assert isinstance(result, pl.DataFrame)
+
+
+class ForwardRefHistorySchema(Protocol):
+    history: list["Address"]
+
+
+def test_list_of_forward_referenced_struct() -> None:
+    """Python 3.10's get_type_hints leaves the string inside list[...] unresolved"""
+    df = pl.DataFrame({"history": [[{"city": "Tokyo", "zip": 1}]]})
+    with pytest.raises(ValidationError, match=r"Column 'history\[\].zip': expected str"):
+        DataFrame[ForwardRefHistorySchema](df)

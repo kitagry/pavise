@@ -193,7 +193,7 @@ def validate_dataframe(df: pd.DataFrame, schema: type, strict: bool = False) -> 
             if is_not_required and col_name not in df.columns:
                 continue
             _check_column_exists(df, col_name)
-            _check_column_type(df, col_name, col_type, strict)
+            _check_column_type(df, col_name, col_type, schema, strict)
 
     schema_cols = [c for c in expected_cols if c != INDEX_COLUMN_NAME and c in df.columns]
     if strict:
@@ -439,7 +439,9 @@ def _is_untyped_all_null(series: pd.Series) -> bool:
     return series.dtype in (np.dtype(object), np.dtype(np.float64)) and bool(series.isna().all())
 
 
-def _check_column_type(df: pd.DataFrame, col_name: str, expected_type: type, strict: bool) -> None:
+def _check_column_type(
+    df: pd.DataFrame, col_name: str, expected_type: type, schema: type, strict: bool
+) -> None:
     """Check if a column has the expected type and apply validators."""
     base_type, validators, is_optional, _is_not_required = _extract_type_and_validators(
         expected_type
@@ -447,7 +449,7 @@ def _check_column_type(df: pd.DataFrame, col_name: str, expected_type: type, str
     col_series: pd.Series = df[col_name]  # type: ignore[assignment]
 
     if is_nested_type(base_type):
-        field = parse_nested_column(expected_type, col_name)
+        field = parse_nested_column(expected_type, col_name, schema)
         if not (is_optional and _is_untyped_all_null(col_series)):
             check_nested_column(field, col_series, col_name, strict)
         return

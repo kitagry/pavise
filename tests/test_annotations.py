@@ -1,4 +1,4 @@
-from typing import Annotated, Literal, Protocol
+from typing import Annotated, ForwardRef, Literal, Protocol
 
 import pytest
 
@@ -113,3 +113,22 @@ def test_parse_rejects_unsupported_annotations(annotation: object, message: str)
 )
 def test_format_field(annotation: object, expected: str):
     assert format_field(parse_annotation(annotation, "a")) == expected
+
+
+class Holder(Protocol):
+    history: list["Address"]
+
+
+def test_parse_resolves_forward_reference_inside_list():
+    """Python 3.10's get_type_hints leaves strings inside list[...] unresolved"""
+    field = parse_annotation(list["Address"], "history", owner=Holder)
+    assert isinstance(field.node, ListOf)
+    assert isinstance(field.node.element.node, StructOf)
+    assert field.node.element.node.schema is Address
+
+
+def test_parse_rejects_unresolvable_forward_reference():
+    with pytest.raises(
+        ValidationError, match="Column 'a': cannot resolve forward reference 'Nope'"
+    ):
+        parse_annotation(list[ForwardRef("Nope")], "a", owner=Holder)

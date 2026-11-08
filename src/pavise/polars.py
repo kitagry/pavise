@@ -30,7 +30,7 @@ def _build_empty_columns(schema: type) -> dict[str, pl.Series]:
     for col_name, col_type in type_hints.items():
         base_type, _, _, _ = _extract_type_and_validators(col_type)
         if is_nested_type(base_type):
-            dtype = nested_dtype(parse_annotation(col_type, col_name))
+            dtype = nested_dtype(parse_annotation(col_type, col_name, schema))
         else:
             dtype = dtype_for_type(base_type)
         columns[col_name] = pl.Series([], dtype=dtype)

@@ -7,9 +7,19 @@ List and Struct columns (``list[X]`` and nested Protocols) are parsed into a tre
 
 from __future__ import annotations
 
+import sys
 import types
 from dataclasses import dataclass
-from typing import Annotated, Any, Literal, Union, get_args, get_origin, get_type_hints
+from typing import (
+    Annotated,
+    Any,
+    ForwardRef,
+    Literal,
+    Union,
+    get_args,
+    get_origin,
+    get_type_hints,
+)
 
 from typing_extensions import is_protocol
 
@@ -128,14 +138,18 @@ def _is_struct_schema(base_type: Any) -> bool:
     return isinstance(base_type, type) and is_protocol(base_type)
 
 
-def parse_annotation(annotation: Any, column_name: str) -> Field:
-    """Parse a column annotation into a Field tree, rejecting what no backend can check."""
-    return _parse(annotation, column_name, allow_not_required=True, seen=frozenset())
+def parse_annotation(annotation: Any, column_name: str, owner: type | None = None) -> Field:
+    """
+    Parse a column annotation into a Field tree, rejecting what no backend can check.
+
+    ``owner`` is the schema the annotation is written in, used to resolve forward references.
+    """
+    return _parse(annotation, column_name, owner, allow_not_required=True, seen=frozenset())
 
 
-def parse_nested_column(annotation: Any, column_name: str) -> Field:
+def parse_nested_column(annotation: Any, column_name: str, owner: type) -> Field:
     """Parse a List or Struct column for validation, rejecting validators no backend runs yet."""
-    field = parse_annotation(annotation, column_name)
+    field = parse_annotation(annotation, column_name, owner)
     if field.has_validators():
         raise ValidationError(
             "validators on list and struct columns are not supported yet",
@@ -161,10 +175,42 @@ def nested_error(message: str, column_name: str, path: str) -> ValidationError:
     return ValidationError(message, column_name=column_name, path=nested_path(column_name, path))
 
 
+def _resolve_forward_reference(annotation: str, column_name: str, owner: type | None) -> Any:
+    """Evaluate a string annotation in the namespace of the schema it is written in."""
+    module = sys.modules.get(owner.__module__) if owner is not None else None
+    globalns = dict(vars(module)) if module is not None else {}
+    localns = {owner.__name__: owner} if owner is not None else {}
+    try:
+        return eval(annotation, globalns, localns)
+    except NameError as e:
+        raise ValidationError(
+            f"cannot resolve forward reference {annotation!r}", column_name=column_name
+        ) from e
+
+
 def _parse(
-    annotation: Any, column_name: str, *, allow_not_required: bool, seen: frozenset[type]
+    annotation: Any,
+    column_name: str,
+    owner: type | None,
+    *,
+    allow_not_required: bool,
+    seen: frozenset[type],
 ) -> Field:
     base_type, validators, nullable, not_required = _extract_type_and_validators(annotation)
+    if isinstance(base_type, ForwardRef):
+        base_type = base_type.__forward_arg__
+    if isinstance(base_type, str):
+        # Python 3.10's get_type_hints leaves strings inside list[...] or Optional[...] as is
+        resolved = _resolve_forward_reference(base_type, column_name, owner)
+        field = _parse(
+            resolved, column_name, owner, allow_not_required=allow_not_required, seen=seen
+        )
+        return Field(
+            field.node,
+            tuple(validators) + field.validators,
+            nullable or field.nullable,
+            not_required or field.not_required,
+        )
     if not_required and not allow_not_required:
         raise ValidationError(
             "NotRequiredColumn is only allowed on columns and struct fields",
@@ -176,7 +222,7 @@ def _parse(
         raise ValidationError("list needs an element type, e.g. list[int]", column_name=column_name)
     if get_origin(base_type) is list:
         (element,) = get_args(base_type)
-        node = ListOf(_parse(element, column_name, allow_not_required=False, seen=seen))
+        node = ListOf(_parse(element, column_name, owner, allow_not_required=False, seen=seen))
     elif _is_struct_schema(base_type):
         assert isinstance(base_type, type)
         if base_type in seen:
@@ -188,7 +234,9 @@ def _parse(
         node = StructOf(
             base_type,
             {
-                name: _parse(hint, column_name, allow_not_required=True, seen=seen | {base_type})
+                name: _parse(
+                    hint, column_name, base_type, allow_not_required=True, seen=seen | {base_type}
+                )
                 for name, hint in hints.items()
             },
         )

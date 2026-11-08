@@ -126,7 +126,7 @@ class DataFrame(pd.DataFrame, Generic[SchemaT_co]):
                 col_type
             )
             if is_nested_type(base_type):
-                nested = nested_dtype(parse_annotation(col_type, col_name))
+                nested = nested_dtype(parse_annotation(col_type, col_name, cls._schema))
                 columns[col_name] = pd.Series([], dtype=nested)
                 continue
 

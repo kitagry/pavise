@@ -302,3 +302,16 @@ def test_literal_with_none_inside_list_accepts_nulls() -> None:
     df = arrow_frame("roles", [["admin", None]], pa.list_(pa.string()))
     result = DataFrame[Schema](df)
     assert isinstance(result, pd.DataFrame)
+
+
+class ForwardRefHistorySchema(Protocol):
+    history: list["Address"]
+
+
+def test_list_of_forward_referenced_struct() -> None:
+    """Python 3.10's get_type_hints leaves the string inside list[...] unresolved"""
+    df = arrow_frame("history", [[ADDRESS]], pa.list_(ADDRESS_TYPE))
+    result = DataFrame[ForwardRefHistorySchema](df)
+    assert isinstance(result, pd.DataFrame)
+    (dtype,) = DataFrame[ForwardRefHistorySchema].make_empty().dtypes
+    assert dtype == pd.ArrowDtype(pa.list_(ADDRESS_TYPE))
