@@ -6,6 +6,7 @@ from datetime import date, datetime, timedelta
 from typing import Any, Literal, NoReturn, get_args, get_origin
 
 import numpy as np
+import numpy.typing as npt
 import pandas as pd
 
 from pavise._annotations import (
@@ -17,9 +18,12 @@ from pavise._annotations import (
     literal_base_type,
     nested_error,
     nested_path,
+    nested_violation_error,
 )
-from pavise._pandas.validator_impl import MAX_SAMPLE_SIZE, _to_python_scalar
+from pavise._pandas.validator_impl import MAX_SAMPLE_SIZE, _to_python_scalar, find_violation
+from pavise._violation import Violation, with_length
 from pavise.exceptions import ValidationError
+from pavise.validators import MaxLen, MinLen
 
 # pyarrow.types predicates accepted for each scalar type inside a List or Struct column. Names,
 # not functions, so pyarrow is imported only when such a column is checked; a predicate missing
@@ -130,7 +134,7 @@ def _check_scalar_type(
 
 def _raise_for_positions(
     message: str,
-    positions: np.ndarray,
+    positions: npt.NDArray[np.intp],
     series: pd.Series,
     column: Any,
     column_name: str,
@@ -150,14 +154,14 @@ def _raise_for_positions(
 def _check_values(
     field: Field,
     values: Any,
-    positions: np.ndarray,
+    positions: npt.NDArray[np.intp],
     series: pd.Series,
     column: Any,
     column_name: str,
     path: str,
 ) -> None:
     """
-    Check nulls and Literal values of ``values``, the Arrow values found at ``path``.
+    Check nulls, Literal values and validators of ``values``, the Arrow values at ``path``.
 
     ``positions`` holds the row position each value comes from, so errors can show the whole
     row (``column`` is the column as an Arrow array, ``series`` gives the row labels).
@@ -226,6 +230,78 @@ def _check_values(
                 column_name,
                 path,
             )
+
+    # After the nested values are checked, so Custom never sees nulls or values of the wrong
+    # kind that the annotation rejects
+    for validator in field.validators:
+        violation = _find_nested_violation(node, values, validator, column_name, path)
+        if violation is not None:
+            _raise_violation(violation, values, positions, series, column, column_name, path)
+
+
+def _find_nested_violation(
+    node: Scalar | ListOf | StructOf,
+    values: Any,
+    validator: Any,
+    column_name: str,
+    path: str,
+) -> Violation | None:
+    """Find the values at ``path`` a validator rejects; list validators look at lengths."""
+    import pyarrow.compute as pc
+
+    if isinstance(node, ListOf) and isinstance(validator, (MinLen, MaxLen)):
+        lengths = pc.call_function("list_value_length", [values]).to_numpy(zero_copy_only=False)
+        if isinstance(validator, MinLen):
+            mask = lengths < validator.min_length
+            violation = Violation(mask, "contains lists shorter than minimum length", with_length)
+        else:
+            mask = lengths > validator.max_length
+            violation = Violation(mask, "contains lists longer than maximum length", with_length)
+    elif isinstance(node, (ListOf, StructOf)):
+        # Custom is the only other validator a list or struct allows; it gets Python values
+        mask = np.array([not validator.func(value) for value in values.to_pylist()], dtype=bool)
+        violation = Violation(mask, validator.message)
+    else:
+        leaf = values.to_pandas(types_mapper=pd.ArrowDtype)
+        try:
+            found = find_violation(leaf, validator, column_name)
+        except ValidationError as e:
+            raise e._with_path(nested_path(column_name, path)) from e
+        if found is None:
+            return None
+        violation = Violation(found.mask.to_numpy(), found.message, found.format_value)
+    return violation if violation.mask.any() else None
+
+
+def _raise_violation(
+    violation: Violation,
+    values: Any,
+    positions: npt.NDArray[np.intp],
+    series: pd.Series,
+    column: Any,
+    column_name: str,
+    path: str,
+) -> NoReturn:
+    import pyarrow as pa
+
+    mask = violation.mask
+    invalid_values = values.filter(pa.array(mask))
+    invalid_positions = positions[mask]
+    samples = [
+        (_to_python_scalar(series.index[pos]), value, column[int(pos)].as_py())
+        for pos, value in zip(
+            invalid_positions[:MAX_SAMPLE_SIZE],
+            invalid_values[:MAX_SAMPLE_SIZE].to_pylist(),
+        )
+    ]
+    raise nested_violation_error(
+        violation.message,
+        samples,
+        len(invalid_positions),
+        violation.format_value,
+        column_name,
+        path,
+    )
 
 
 def nested_dtype(field: Field) -> pd.ArrowDtype:

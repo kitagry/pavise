@@ -11,6 +11,7 @@ except ImportError:
     raise ImportError("Polars is not installed. Install it with: pip install pavise[polars]")
 
 from pavise._regex import fullmatch_pattern, invalid_pattern_error
+from pavise._violation import Violation, with_length
 from pavise.exceptions import ValidationError
 from pavise.validators import Custom, Ge, Gt, In, Le, Lt, MaxLen, MinLen, Range, Regex, Unique
 
@@ -38,29 +39,61 @@ def apply_validator(series: "pl.Series", validator: Any, col_name: str) -> None:
         col_name: column name for error messages
 
     Raises:
-        ValueError: if validation fails
+        ValidationError: if validation fails
+    """
+    violation = find_violation(series, validator, col_name)
+    if violation is None:
+        return
+    samples, total_invalid = get_invalid_samples(series, violation.mask)
+    raise ValidationError.new_with_samples(
+        col_name, violation.message, samples, total_invalid, violation.format_value
+    )
+
+
+def find_violation(series: "pl.Series", validator: Any, col_name: str) -> Violation | None:
+    """
+    Find the values a validator rejects, or None if it accepts them all.
+
+    Raises:
+        ValidationError: if the validator cannot be applied to the series at all
     """
     if isinstance(validator, BOUND_VALIDATORS):
         require_orderable_dtype(series.dtype, validator, col_name)
 
     if isinstance(validator, Range):
-        _validate_range(series, validator, col_name)
+        violation = _find_range(series, validator, col_name)
     elif isinstance(validator, (Ge, Gt, Le, Lt)):
-        _validate_comparison(series, validator, col_name)
+        violation = _find_comparison(series, validator, col_name)
     elif isinstance(validator, Unique):
-        _validate_unique(series, col_name)
+        violation = Violation(series.is_duplicated(), "contains duplicate values")
     elif isinstance(validator, In):
-        _validate_in(series, validator, col_name)
+        violation = Violation(
+            ~series.is_in(validator.allowed_values), "contains values not in allowed values"
+        )
     elif isinstance(validator, Regex):
-        _validate_regex(series, validator, col_name)
+        violation = _find_regex(series, validator, col_name)
     elif isinstance(validator, MinLen):
-        _validate_minlen(series, validator, col_name)
+        violation = Violation(
+            series.str.len_chars() < validator.min_length,
+            "contains strings shorter than minimum length",
+            with_length,
+        )
     elif isinstance(validator, MaxLen):
-        _validate_maxlen(series, validator, col_name)
+        violation = Violation(
+            series.str.len_chars() > validator.max_length,
+            "contains strings longer than maximum length",
+            with_length,
+        )
     elif isinstance(validator, Custom):
-        _validate_custom(series, validator, col_name)
+        violation = Violation(~series.map_elements(validator.func), validator.message)
     else:
         raise ValidationError(f"Unknown validator type: {type(validator)}")
+
+    # Comparisons leave the mask null where they cannot decide, which is no violation
+    mask = violation.mask.fill_null(False)
+    if not mask.any():
+        return None
+    return Violation(mask, violation.message, violation.format_value)
 
 
 def get_invalid_samples(
@@ -122,26 +155,18 @@ def _compare(
         ) from e
 
 
-def _validate_range(series: "pl.Series", validator: Range, col_name: str) -> None:
-    """Validate that all values in series are within the specified range."""
+def _find_range(series: "pl.Series", validator: Range, col_name: str) -> Violation:
+    """Find values outside the specified range."""
     invalid_mask = _compare(series, operator.lt, validator.min, validator, col_name) | _compare(
         series, operator.gt, validator.max, validator, col_name
     )
-    if not invalid_mask.any():
-        return
-
-    samples, total_invalid = get_invalid_samples(series, invalid_mask)
-    raise ValidationError.new_with_samples(
-        col_name,
-        f"values must be in range [{validator.min}, {validator.max}]",
-        samples,
-        total_invalid,
-        format_value=str,
+    return Violation(
+        invalid_mask, f"values must be in range [{validator.min}, {validator.max}]", str
     )
 
 
-def _validate_comparison(series: "pl.Series", validator: Ge | Gt | Le | Lt, col_name: str) -> None:
-    """Validate that all values in series satisfy the comparison against the bound."""
+def _find_comparison(series: "pl.Series", validator: Ge | Gt | Le | Lt, col_name: str) -> Violation:
+    """Find values that do not satisfy the comparison against the bound."""
     violates, symbol = next(
         entry for cls, entry in _COMPARISONS.items() if isinstance(validator, cls)
     )
@@ -149,49 +174,11 @@ def _validate_comparison(series: "pl.Series", validator: Ge | Gt | Le | Lt, col_
     if series.dtype.is_float():
         # Polars orders NaN above every number, so only upper bounds would catch it
         invalid_mask = invalid_mask | series.is_nan()
-    if not invalid_mask.any():
-        return
-
-    samples, total_invalid = get_invalid_samples(series, invalid_mask)
-    raise ValidationError.new_with_samples(
-        col_name,
-        f"values must be {symbol} {validator.value}",
-        samples,
-        total_invalid,
-        format_value=str,
-    )
+    return Violation(invalid_mask, f"values must be {symbol} {validator.value}", str)
 
 
-def _validate_unique(series: "pl.Series", col_name: str) -> None:
-    """Validate that all values in series are unique (no duplicates)."""
-    duplicated_mask = series.is_duplicated()
-    if not duplicated_mask.any():
-        return
-
-    samples, total_invalid = get_invalid_samples(series, duplicated_mask)
-    raise ValidationError.new_with_samples(
-        col_name,
-        "contains duplicate values",
-        samples,
-        total_invalid=total_invalid,
-        format_value=repr,
-    )
-
-
-def _validate_in(series: "pl.Series", validator: In, col_name: str) -> None:
-    """Validate that all values in series are within the allowed set."""
-    invalid_mask = ~series.is_in(validator.allowed_values)
-    if not invalid_mask.any():
-        return
-
-    samples, total_invalid = get_invalid_samples(series, invalid_mask)
-    raise ValidationError.new_with_samples(
-        col_name, "contains values not in allowed values", samples, total_invalid
-    )
-
-
-def _validate_regex(series: "pl.Series", validator: Regex, col_name: str) -> None:
-    """Validate that all values in series match the regex pattern."""
+def _find_regex(series: "pl.Series", validator: Regex, col_name: str) -> Violation:
+    """Find values that do not match the regex pattern."""
     try:
         # Compile the pattern as written first: wrapping can make an invalid pattern valid
         # (`a)|(b` becomes `^(?:a)|(b)$`), and the engine's error then quotes the user's text
@@ -199,52 +186,4 @@ def _validate_regex(series: "pl.Series", validator: Regex, col_name: str) -> Non
         invalid_mask = ~series.str.contains(fullmatch_pattern(validator.pattern))
     except pl.exceptions.ComputeError as e:
         raise invalid_pattern_error(validator.pattern, col_name, e) from e
-    if not invalid_mask.any():
-        return
-
-    samples, total_invalid = get_invalid_samples(series, invalid_mask)
-    raise ValidationError.new_with_samples(
-        col_name, "contains values that don't match the pattern", samples, total_invalid
-    )
-
-
-def _validate_minlen(series: "pl.Series", validator: MinLen, col_name: str) -> None:
-    """Validate that all string values have minimum length."""
-    invalid_mask = series.str.len_chars() < validator.min_length
-    if not invalid_mask.any():
-        return
-
-    samples, total_invalid = get_invalid_samples(series, invalid_mask)
-    raise ValidationError.new_with_samples(
-        col_name,
-        "contains strings shorter than minimum length",
-        samples,
-        total_invalid,
-        format_value=lambda val: f"{repr(val)} (length: {len(val)})",
-    )
-
-
-def _validate_maxlen(series: "pl.Series", validator: MaxLen, col_name: str) -> None:
-    """Validate that all string values have maximum length."""
-    invalid_mask = series.str.len_chars() > validator.max_length
-    if not invalid_mask.any():
-        return
-
-    samples, total_invalid = get_invalid_samples(series, invalid_mask)
-    raise ValidationError.new_with_samples(
-        col_name,
-        "contains strings longer than maximum length",
-        samples,
-        total_invalid,
-        format_value=lambda val: f"{repr(val)} (length: {len(val)})",
-    )
-
-
-def _validate_custom(series: "pl.Series", validator: Custom, col_name: str) -> None:
-    """Validate using a custom function."""
-    invalid_mask = ~series.map_elements(validator.func)
-    if not invalid_mask.any():
-        return
-
-    samples, total_invalid = get_invalid_samples(series, invalid_mask)
-    raise ValidationError.new_with_samples(col_name, validator.message, samples, total_invalid)
+    return Violation(invalid_mask, "contains values that don't match the pattern")
