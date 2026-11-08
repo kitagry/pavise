@@ -39,9 +39,14 @@ class ValidationError(PaviseError):
         if path or column_name:
             msg = f"Column '{path or column_name}': {msg}"
         super().__init__(msg)
+        self._base_message = base_message
         self.column_name = column_name
         self.path = path
         self.invalid_samples = invalid_samples or []
+
+    def _with_path(self, path: str | None) -> Self:
+        """The same error reported at ``path`` inside its List or Struct column."""
+        return type(self)(self._base_message, self.column_name, self.invalid_samples, path=path)
 
     @classmethod
     def new_with_samples(

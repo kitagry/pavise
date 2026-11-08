@@ -2,10 +2,18 @@ from typing import Annotated, ForwardRef, Literal, Protocol
 
 import pytest
 
-from pavise._annotations import Field, ListOf, Scalar, StructOf, format_field, parse_annotation
+from pavise._annotations import (
+    Field,
+    ListOf,
+    Scalar,
+    StructOf,
+    format_field,
+    parse_annotation,
+    parse_nested_column,
+)
 from pavise.exceptions import ValidationError
 from pavise.types import NotRequiredColumn
-from pavise.validators import MinLen, Range, Regex
+from pavise.validators import Custom, In, MaxLen, MinLen, Range, Regex, Unique
 
 
 class Address(Protocol):
@@ -132,3 +140,55 @@ def test_parse_rejects_unresolvable_forward_reference():
         ValidationError, match="Column 'a': cannot resolve forward reference 'Nope'"
     ):
         parse_annotation(list[ForwardRef("Nope")], "a", owner=Holder)
+
+
+class UniqueCity(Protocol):
+    city: Annotated[str, Unique()]
+
+
+@pytest.mark.parametrize(
+    "annotation",
+    [
+        Annotated[list[int], MinLen(1), MaxLen(3), Custom(bool, "must not be empty")],
+        list[Annotated[int, Range(0, 100)]],
+        list[Annotated[str, Regex("a+"), In(["a"]), MinLen(1)]],
+        Annotated[Address, Custom(bool, "must not be empty")],
+        list[Annotated[list[int], MinLen(1)]],
+    ],
+)
+def test_parse_nested_column_accepts_validators_on_their_targets(annotation: object):
+    parse_nested_column(annotation, "col", owner=Holder)
+
+
+@pytest.mark.parametrize(
+    "annotation, message",
+    [
+        (
+            Annotated[list[int], Range(0, 1)],
+            r"^Column 'col': Range cannot be used on a list; use MinLen, MaxLen or Custom$",
+        ),
+        (
+            list[Annotated[list[int], In([[1]])]],
+            r"^Column 'col\[\]': In cannot be used on a list; use MinLen, MaxLen or Custom$",
+        ),
+        (
+            Annotated[Address, MinLen(1)],
+            r"^Column 'col': MinLen cannot be used on a struct; use Custom$",
+        ),
+        (
+            list[Annotated[int, Unique()]],
+            r"^Column 'col\[\]': Unique cannot be used inside list and struct columns$",
+        ),
+        (
+            UniqueCity,
+            r"^Column 'col.city': Unique cannot be used inside list and struct columns$",
+        ),
+        (
+            Annotated[list[int], Unique()],
+            r"^Column 'col': Unique cannot be used on a list; use MinLen, MaxLen or Custom$",
+        ),
+    ],
+)
+def test_parse_nested_column_rejects_validators_without_meaning(annotation: object, message: str):
+    with pytest.raises(ValidationError, match=message):
+        parse_nested_column(annotation, "col", owner=Holder)

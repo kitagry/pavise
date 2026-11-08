@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import sys
 import types
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import (
     Annotated,
@@ -25,6 +26,7 @@ from typing_extensions import is_protocol
 
 from pavise.exceptions import ValidationError
 from pavise.types import NotRequiredColumn
+from pavise.validators import Custom, MaxLen, MinLen, Unique
 
 
 def _extract_type_and_validators(
@@ -118,16 +120,6 @@ class Field:
     nullable: bool = False
     not_required: bool = False
 
-    def has_validators(self) -> bool:
-        """Whether this field or anything nested in it has validators."""
-        if self.validators:
-            return True
-        if isinstance(self.node, ListOf):
-            return self.node.element.has_validators()
-        if isinstance(self.node, StructOf):
-            return any(sub.has_validators() for sub in self.node.fields.values())
-        return False
-
 
 def is_nested_type(base_type: Any) -> bool:
     """Whether a base type from _extract_type_and_validators is a List or Struct annotation."""
@@ -148,14 +140,33 @@ def parse_annotation(annotation: Any, column_name: str, owner: type | None = Non
 
 
 def parse_nested_column(annotation: Any, column_name: str, owner: type) -> Field:
-    """Parse a List or Struct column for validation, rejecting validators no backend runs yet."""
+    """Parse a List or Struct column, rejecting validators that have no meaning where written."""
     field = parse_annotation(annotation, column_name, owner)
-    if field.has_validators():
-        raise ValidationError(
-            "validators on list and struct columns are not supported yet",
-            column_name=column_name,
-        )
+    _check_validator_targets(field, column_name, column_name)
     return field
+
+
+def _check_validator_targets(field: Field, column_name: str, path: str) -> None:
+    node = field.node
+    for validator in field.validators:
+        name = type(validator).__name__
+        if isinstance(node, ListOf) and not isinstance(validator, (MinLen, MaxLen, Custom)):
+            raise nested_error(
+                f"{name} cannot be used on a list; use MinLen, MaxLen or Custom", column_name, path
+            )
+        if isinstance(node, StructOf) and not isinstance(validator, Custom):
+            raise nested_error(f"{name} cannot be used on a struct; use Custom", column_name, path)
+        # Whether values must be unique per list, per column or per struct has no single answer
+        if isinstance(validator, Unique) and path != column_name:
+            raise nested_error(
+                f"{name} cannot be used inside list and struct columns", column_name, path
+            )
+
+    if isinstance(node, ListOf):
+        _check_validator_targets(node.element, column_name, f"{path}[]")
+    elif isinstance(node, StructOf):
+        for name, sub in node.fields.items():
+            _check_validator_targets(sub, column_name, f"{path}.{name}")
 
 
 def literal_base_type(t: Any) -> Any:
@@ -169,6 +180,33 @@ def literal_base_type(t: Any) -> Any:
 def nested_path(column_name: str, path: str) -> str | None:
     """The path to report, or None when the column itself failed."""
     return path if path != column_name else None
+
+
+def nested_violation_error(
+    message: str,
+    samples: list[tuple[Any, Any, Any]],
+    total_invalid: int,
+    format_value: Callable[[Any], str],
+    column_name: str,
+    path: str,
+) -> ValidationError:
+    """
+    Report values a validator rejected at ``path``, given as (row, value, row value) samples.
+
+    Inside a List or Struct column, each sample also shows the whole row it was found in.
+    """
+    at_column = path == column_name
+    msg = f"{message}\n\nSample invalid values (showing first {len(samples)} of {total_invalid}):"
+    for row, value, row_value in samples:
+        msg += f"\n  Row {row}: {format_value(value)}"
+        if not at_column:
+            msg += f" (in {row_value!r})"
+    return ValidationError(
+        msg,
+        column_name=column_name,
+        invalid_samples=[(row, value) for row, value, _ in samples],
+        path=nested_path(column_name, path),
+    )
 
 
 def nested_error(message: str, column_name: str, path: str) -> ValidationError:

@@ -6,7 +6,7 @@ import pytest
 from pavise.exceptions import ValidationError
 from pavise.pandas import DataFrame
 from pavise.types import NotRequiredColumn
-from pavise.validators import Range
+from pavise.validators import Custom, In, MaxLen, MinLen, Range, Regex
 
 pa = pytest.importorskip("pyarrow")
 
@@ -218,15 +218,6 @@ def test_null_check_reports_row_of_deeply_nested_null() -> None:
         DataFrame[HistorySchema](df)
 
 
-def test_validators_inside_nested_columns_are_not_supported_yet() -> None:
-    class Schema(Protocol):
-        scores: list[Annotated[int, Range(0, 100)]]
-
-    df = arrow_frame("scores", [[1]], pa.list_(pa.int64()))
-    with pytest.raises(ValidationError, match=r"Column 'scores': validators .* not supported yet"):
-        DataFrame[Schema](df)
-
-
 @pytest.mark.parametrize(
     "schema, expected",
     [
@@ -315,3 +306,119 @@ def test_list_of_forward_referenced_struct() -> None:
     assert isinstance(result, pd.DataFrame)
     (dtype,) = DataFrame[ForwardRefHistorySchema].make_empty().dtypes
     assert dtype == pd.ArrowDtype(pa.list_(ADDRESS_TYPE))
+
+
+def _validation_message(df: pd.DataFrame, schema: type) -> str:
+    with pytest.raises(ValidationError) as exc_info:
+        DataFrame[schema](df)
+    return str(exc_info.value)
+
+
+def test_element_validator_reports_value_and_row_label() -> None:
+    class Schema(Protocol):
+        scores: list[Annotated[int, Range(0, 100)]]
+
+    df = arrow_frame(
+        "scores", [[50], [50, 120], [], [-3]], pa.list_(pa.int64()), index=["a", "b", "c", "d"]
+    )
+    assert _validation_message(df, Schema) == (
+        "Column 'scores[]': values must be in range [0, 100]\n\n"
+        "Sample invalid values (showing first 2 of 2):\n"
+        "  Row b: 120 (in [50, 120])\n"
+        "  Row d: -3 (in [-3])"
+    )
+
+
+def test_element_validator_accepts_valid_values_and_skips_nulls() -> None:
+    class Schema(Protocol):
+        scores: list[Annotated[int | None, Range(0, 100)]] | None
+
+    df = arrow_frame("scores", [[0, None, 100], [], None], pa.list_(pa.int64()))
+    result = DataFrame[Schema](df)
+    assert isinstance(result, pd.DataFrame)
+
+
+def test_struct_field_validator_inside_list() -> None:
+    class CheckedAddress(Protocol):
+        city: str
+        zip: Annotated[str, Regex(r"\d{3}-\d{4}")]
+
+    class Schema(Protocol):
+        history: list[CheckedAddress]
+
+    df = arrow_frame(
+        "history", [[ADDRESS], [{"city": "Osaka", "zip": "abc"}]], pa.list_(ADDRESS_TYPE)
+    )
+    assert _validation_message(df, Schema) == (
+        "Column 'history[].zip': contains values that don't match the pattern\n\n"
+        "Sample invalid values (showing first 1 of 1):\n"
+        "  Row 1: 'abc' (in [{'city': 'Osaka', 'zip': 'abc'}])"
+    )
+
+
+@pytest.mark.parametrize(
+    "validator, data, message",
+    [
+        (
+            MinLen(1),
+            [[1], []],
+            "Column 'items': contains lists shorter than minimum length\n\n"
+            "Sample invalid values (showing first 1 of 1):\n"
+            "  Row 1: [] (length: 0)",
+        ),
+        (
+            MaxLen(2),
+            [[1, 2, 3], [1]],
+            "Column 'items': contains lists longer than maximum length\n\n"
+            "Sample invalid values (showing first 1 of 1):\n"
+            "  Row 0: [1, 2, 3] (length: 3)",
+        ),
+    ],
+)
+def test_list_length_validators(validator: Any, data: list[Any], message: str) -> None:
+    class Schema(Protocol):
+        items: Annotated[list[int], validator]  # type: ignore[valid-type]
+
+    df = arrow_frame("items", data, pa.list_(pa.int64()))
+    assert _validation_message(df, Schema) == message
+
+
+def test_list_length_validator_on_fixed_size_list() -> None:
+    class Schema(Protocol):
+        pair: Annotated[list[int], MaxLen(1)]
+
+    df = arrow_frame("pair", [[1, 2]], pa.list_(pa.int64(), 2))
+    assert "contains lists longer than maximum length" in _validation_message(df, Schema)
+
+
+def test_custom_on_list_and_struct_columns_receives_python_values() -> None:
+    class Schema(Protocol):
+        items: Annotated[list[int], Custom(lambda v: sum(v) < 10, "sum must be below 10")]
+
+    df = arrow_frame("items", [[1, 2], [5, 6]], pa.list_(pa.int64()))
+    assert _validation_message(df, Schema).endswith("Row 1: [5, 6]")
+
+    class AddressSchema(Protocol):
+        address: Annotated[Address, Custom(lambda a: a["city"] != a["zip"], "city equals zip")]
+
+    df = arrow_frame("address", [ADDRESS, {"city": "x", "zip": "x"}], ADDRESS_TYPE)
+    assert _validation_message(df, AddressSchema).endswith("Row 1: {'city': 'x', 'zip': 'x'}")
+
+
+def test_element_string_validators() -> None:
+    class Schema(Protocol):
+        tags: list[Annotated[str, MinLen(2), In(["bb", "a"])]]
+
+    df = arrow_frame("tags", [["a", "bb"]], pa.list_(pa.string()))
+    assert _validation_message(df, Schema).endswith("Row 0: 'a' (length: 1) (in ['a', 'bb'])")
+
+
+def test_bound_validator_on_string_elements_names_the_path() -> None:
+    class Schema(Protocol):
+        tags: list[Annotated[str, Range(0, 1)]]
+
+    df = arrow_frame("tags", [["a"]], pa.list_(pa.string()))
+    with pytest.raises(ValidationError) as exc_info:
+        DataFrame[Schema](df)
+    assert str(exc_info.value).startswith("Column 'tags[]': Range requires a numeric or temporal")
+    assert exc_info.value.column_name == "tags"
