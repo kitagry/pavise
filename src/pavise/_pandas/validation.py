@@ -214,11 +214,20 @@ def _run_unique_check(df: pd.DataFrame, check: UniqueCheck) -> None:
         return
 
     keys = df.loc[:, columns]
-    duplicated = keys.duplicated(keep=False)
+    try:
+        duplicated = keys.duplicated(keep=False)
+    except (TypeError, NotImplementedError):
+        # Lists and dicts are unhashable, and pyarrow cannot hash list columns either,
+        # so compare such values by content instead.
+        keys = keys.apply(lambda col: col.astype(object).map(_hashable))
+        duplicated = keys.duplicated(keep=False)
     if not duplicated.any():
         return
 
-    duplicate_keys = keys.loc[duplicated]
+    positions = np.flatnonzero(duplicated.to_numpy(dtype=bool))
+    # Index by position so the samples can be taken from the original values, whatever
+    # the DataFrame's index holds.
+    duplicate_keys = keys.iloc[positions].set_axis(positions)
     # Group by the Series rather than their names: a name shared with an index level is
     # ambiguous to groupby. observed=True keeps unused categories out of the groups.
     groups = duplicate_keys.groupby(
@@ -226,13 +235,26 @@ def _run_unique_check(df: pd.DataFrame, check: UniqueCheck) -> None:
     )
     duplicates = [
         (
-            group.head(1).to_dict("records")[0],
-            group.index[:MAX_SAMPLE_SIZE].tolist(),
+            df.iloc[group.index[:1], df.columns.get_indexer(columns)].to_dict("records")[0],
+            df.index[group.index[:MAX_SAMPLE_SIZE]].tolist(),
             len(group),
         )
         for _, group in itertools.islice(groups, MAX_SAMPLE_SIZE)
     ]
     raise ValidationError.new_with_duplicate_keys(check.columns, duplicates, groups.ngroups)
+
+
+def _hashable(value: Any) -> Any:
+    """Turn a list, tuple, array, dict or set into a hashable value equal by content."""
+    if isinstance(value, np.ndarray):
+        value = value.tolist()
+    if isinstance(value, (list, tuple)):
+        return (type(value), tuple(_hashable(v) for v in value))
+    if isinstance(value, dict):
+        return (dict, frozenset((k, _hashable(v)) for k, v in value.items()))
+    if isinstance(value, set):
+        return frozenset(value)
+    return value
 
 
 def _run_dataframe_check(df: pd.DataFrame, check: DataFrameCheck, schema_cols: list[str]) -> None:

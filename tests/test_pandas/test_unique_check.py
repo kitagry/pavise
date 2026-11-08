@@ -217,3 +217,40 @@ def test_unique_counts_only_observed_categories():
         "\n\nSample duplicate keys (showing first 1 of 1):"
         "\n  {'a': 'x', 'b': 'p'}: rows [0, 1]"
     )
+
+
+@unique("a", "b")
+class AnyKeySchema(Protocol):
+    a: int
+    b: Any
+
+
+def test_unique_compares_unhashable_values_by_content():
+    df = pd.DataFrame({"a": [1, 1, 1], "b": [[1, 2], [3], [1, 2]]})
+
+    with pytest.raises(ValidationError) as exc_info:
+        DataFrame[AnyKeySchema](df)
+
+    assert str(exc_info.value) == (
+        "Columns ('a', 'b') must be unique, found 1 duplicate key"
+        "\n\nSample duplicate keys (showing first 1 of 1):"
+        "\n  {'a': 1, 'b': [1, 2]}: rows [0, 2]"
+    )
+
+
+def test_unique_compares_arrow_list_values_by_content():
+    pa = pytest.importorskip("pyarrow")
+    df = pd.DataFrame(
+        {
+            "a": [1, 1, 1],
+            "b": pd.Series([[1, 2], [3], [1, 2]], dtype=pd.ArrowDtype(pa.list_(pa.int64()))),
+        }
+    )
+
+    with pytest.raises(ValidationError) as exc_info:
+        DataFrame[AnyKeySchema](df)
+
+    assert str(exc_info.value).splitlines()[0] == (
+        "Columns ('a', 'b') must be unique, found 1 duplicate key"
+    )
+    assert [row for row, _ in exc_info.value.invalid_samples] == [0, 2]
