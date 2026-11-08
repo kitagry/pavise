@@ -521,3 +521,25 @@ def test_lazyframe_checks_element_validators_on_collect() -> None:
     lf = LazyFrame[Schema](pl.LazyFrame({"scores": [[101]]}))
     with pytest.raises(ValidationError, match=r"Column 'scores\[\]': values must be in range"):
         lf.collect()
+
+
+def test_custom_on_list_does_not_see_null_elements_the_annotation_rejects() -> None:
+    class Schema(Protocol):
+        items: Annotated[list[int], Custom(lambda v: sum(v) < 10, "sum must be below 10")]
+
+    message = _validation_message(pl.DataFrame({"items": [[1, None]]}), Schema)
+    assert message.startswith("Column 'items[]': is non-optional but contains null values")
+
+
+def test_custom_on_list_accepts_column_with_only_nulls() -> None:
+    class Schema(Protocol):
+        items: Annotated[list[int], Custom(lambda v: sum(v) < 10, "sum must be below 10")] | None
+
+    DataFrame[Schema](pl.DataFrame({"items": pl.Series([None], dtype=pl.List(pl.Int64))}))
+
+
+def test_custom_on_elements_accepts_column_with_only_empty_lists() -> None:
+    class Schema(Protocol):
+        items: list[Annotated[int, Custom(lambda v: v > 0, "must be positive")]]
+
+    DataFrame[Schema](pl.DataFrame({"items": pl.Series([[], []], dtype=pl.List(pl.Int64))}))

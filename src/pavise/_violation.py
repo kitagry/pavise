@@ -16,3 +16,8 @@ class Violation:
     mask: Any  # Boolean Series of the backend, True where a value is rejected
     message: str
     format_value: Callable[[Any], str] = repr
+
+
+def with_length(value: Any) -> str:
+    """Format a string or list value together with its length."""
+    return f"{value!r} (length: {len(value)})"

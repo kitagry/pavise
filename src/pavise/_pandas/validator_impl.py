@@ -10,7 +10,7 @@ import numpy as np
 import pandas as pd
 
 from pavise._regex import fullmatch_pattern, invalid_pattern_error
-from pavise._violation import Violation
+from pavise._violation import Violation, with_length
 from pavise.exceptions import ValidationError
 from pavise.validators import Custom, Ge, Gt, In, Le, Lt, MaxLen, MinLen, Range, Regex, Unique
 
@@ -91,13 +91,13 @@ def find_violation(series: pd.Series, validator: Any, col_name: str) -> Violatio
         violation = Violation(
             series.str.len() < validator.min_length,
             "contains strings shorter than minimum length",
-            _with_length,
+            with_length,
         )
     elif isinstance(validator, MaxLen):
         violation = Violation(
             series.str.len() > validator.max_length,
             "contains strings longer than maximum length",
-            _with_length,
+            with_length,
         )
     elif isinstance(validator, Custom):
         violation = Violation(~series.apply(validator.func), validator.message)
@@ -106,13 +106,10 @@ def find_violation(series: pd.Series, validator: Any, col_name: str) -> Violatio
 
     # Nullable dtypes (Int64, string) yield NA where the comparison is undefined; NA is not
     # a violation here, since nulls are handled by the optional check.
-    if not violation.mask.fillna(False).astype(bool).any():
+    mask = violation.mask.fillna(False).astype(bool)
+    if not mask.any():
         return None
-    return violation
-
-
-def _with_length(value: Any) -> str:
-    return f"{value!r} (length: {len(value)})"
+    return Violation(mask, violation.message, violation.format_value)
 
 
 def get_invalid_samples(

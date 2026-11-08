@@ -422,3 +422,12 @@ def test_bound_validator_on_string_elements_names_the_path() -> None:
         DataFrame[Schema](df)
     assert str(exc_info.value).startswith("Column 'tags[]': Range requires a numeric or temporal")
     assert exc_info.value.column_name == "tags"
+
+
+def test_custom_on_list_does_not_see_null_elements_the_annotation_rejects() -> None:
+    class Schema(Protocol):
+        items: Annotated[list[int], Custom(lambda v: sum(v) < 10, "sum must be below 10")]
+
+    df = arrow_frame("items", [[1, None]], pa.list_(pa.int64()))
+    message = _validation_message(df, Schema)
+    assert message.startswith("Column 'items[]': is non-optional but contains null values")

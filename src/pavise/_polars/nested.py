@@ -24,7 +24,7 @@ from pavise._polars.validator_impl import (
     find_violation,
     require_orderable_dtype,
 )
-from pavise._violation import Violation
+from pavise._violation import Violation, with_length
 from pavise.exceptions import ValidationError
 from pavise.validators import MaxLen, MinLen
 
@@ -136,24 +136,21 @@ def _check_values(
             )
         values = values.filter(~is_null)
         rows = rows.filter(~is_null)
-    if values.dtype == pl.Null:
+    # map_elements cannot infer a dtype from no values, so validators would fail on them
+    if values.dtype == pl.Null or values.is_empty():
         return
 
     node = field.node
     if isinstance(values.dtype, pl.Array):
         values = values.cast(pl.List(values.dtype.inner))  # type: ignore[arg-type]
-    for validator in field.validators:
-        violation = _find_nested_violation(node, values, validator, column_name, path)
-        if violation is not None:
-            _raise_violation(violation, values, rows, column, column_name, path)
 
     if isinstance(node, ListOf):
         lengths = values.list.len()
         # Exploding an empty list yields a null, so leave empty lists out
         non_empty = lengths > 0
-        values = values.filter(non_empty)
-        rows = rows.filter(non_empty).repeat_by(lengths.filter(non_empty)).explode()
-        _check_values(node.element, values.explode(), rows, column, column_name, f"{path}[]")
+        elements = values.filter(non_empty).explode()
+        element_rows = rows.filter(non_empty).repeat_by(lengths.filter(non_empty)).explode()
+        _check_values(node.element, elements, element_rows, column, column_name, f"{path}[]")
     elif isinstance(node, StructOf):
         present = {f.name for f in values.dtype.fields}  # type: ignore[attr-defined]
         for name, sub in node.fields.items():
@@ -173,6 +170,13 @@ def _check_values(
                 path,
             )
 
+    # After the nested values are checked, so Custom never sees nulls or values of the wrong
+    # kind that the annotation rejects
+    for validator in field.validators:
+        violation = _find_nested_violation(node, values, validator, column_name, path)
+        if violation is not None:
+            _raise_violation(violation, values, rows, column, column_name, path)
+
 
 def _find_nested_violation(
     node: Scalar | ListOf | StructOf,
@@ -184,13 +188,15 @@ def _find_nested_violation(
     """Find the values at ``path`` a validator rejects; list validators look at lengths."""
     if isinstance(node, ListOf) and isinstance(validator, MinLen):
         mask = values.list.len() < validator.min_length
-        violation = Violation(mask, "contains lists shorter than minimum length", _with_length)
+        violation = Violation(mask, "contains lists shorter than minimum length", with_length)
     elif isinstance(node, ListOf) and isinstance(validator, MaxLen):
         mask = values.list.len() > validator.max_length
-        violation = Violation(mask, "contains lists longer than maximum length", _with_length)
+        violation = Violation(mask, "contains lists longer than maximum length", with_length)
     elif isinstance(node, (ListOf, StructOf)):
         # Custom is the only other validator a list or struct allows; it gets Python values
-        mask = pl.Series([not validator.func(value) for value in values.to_list()])
+        mask = pl.Series(
+            [not validator.func(value) for value in values.to_list()], dtype=pl.Boolean
+        )
         violation = Violation(mask, validator.message)
     else:
         try:
@@ -198,10 +204,6 @@ def _find_nested_violation(
         except ValidationError as e:
             raise e._with_path(nested_path(column_name, path)) from e
     return violation if violation.mask.any() else None
-
-
-def _with_length(value: Any) -> str:
-    return f"{value!r} (length: {len(value)})"
 
 
 def _raise_violation(
@@ -212,8 +214,7 @@ def _raise_violation(
     column_name: str,
     path: str,
 ) -> NoReturn:
-    # Validators leave the mask null where they cannot decide, which is no violation
-    mask = violation.mask.fill_null(False)
+    mask = violation.mask
     invalid_values = values.filter(mask)
     sample_rows = rows.filter(mask).head(MAX_SAMPLE_SIZE)
     samples = list(

@@ -11,7 +11,7 @@ except ImportError:
     raise ImportError("Polars is not installed. Install it with: pip install pavise[polars]")
 
 from pavise._regex import fullmatch_pattern, invalid_pattern_error
-from pavise._violation import Violation
+from pavise._violation import Violation, with_length
 from pavise.exceptions import ValidationError
 from pavise.validators import Custom, Ge, Gt, In, Le, Lt, MaxLen, MinLen, Range, Regex, Unique
 
@@ -76,26 +76,24 @@ def find_violation(series: "pl.Series", validator: Any, col_name: str) -> Violat
         violation = Violation(
             series.str.len_chars() < validator.min_length,
             "contains strings shorter than minimum length",
-            _with_length,
+            with_length,
         )
     elif isinstance(validator, MaxLen):
         violation = Violation(
             series.str.len_chars() > validator.max_length,
             "contains strings longer than maximum length",
-            _with_length,
+            with_length,
         )
     elif isinstance(validator, Custom):
         violation = Violation(~series.map_elements(validator.func), validator.message)
     else:
         raise ValidationError(f"Unknown validator type: {type(validator)}")
 
-    if not violation.mask.any():
+    # Comparisons leave the mask null where they cannot decide, which is no violation
+    mask = violation.mask.fill_null(False)
+    if not mask.any():
         return None
-    return violation
-
-
-def _with_length(value: Any) -> str:
-    return f"{value!r} (length: {len(value)})"
+    return Violation(mask, violation.message, violation.format_value)
 
 
 def get_invalid_samples(

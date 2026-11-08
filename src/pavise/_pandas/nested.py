@@ -21,7 +21,7 @@ from pavise._annotations import (
     nested_violation_error,
 )
 from pavise._pandas.validator_impl import MAX_SAMPLE_SIZE, _to_python_scalar, find_violation
-from pavise._violation import Violation
+from pavise._violation import Violation, with_length
 from pavise.exceptions import ValidationError
 from pavise.validators import MaxLen, MinLen
 
@@ -187,11 +187,6 @@ def _check_values(
         return
 
     node = field.node
-    for validator in field.validators:
-        violation = _find_nested_violation(node, values, validator, column_name, path)
-        if violation is not None:
-            _raise_violation(violation, values, positions, series, column, column_name, path)
-
     if isinstance(node, ListOf):
         parents = pc.call_function("list_parent_indices", [values])
         _check_values(
@@ -236,6 +231,13 @@ def _check_values(
                 path,
             )
 
+    # After the nested values are checked, so Custom never sees nulls or values of the wrong
+    # kind that the annotation rejects
+    for validator in field.validators:
+        violation = _find_nested_violation(node, values, validator, column_name, path)
+        if violation is not None:
+            _raise_violation(violation, values, positions, series, column, column_name, path)
+
 
 def _find_nested_violation(
     node: Scalar | ListOf | StructOf,
@@ -251,10 +253,10 @@ def _find_nested_violation(
         lengths = pc.call_function("list_value_length", [values]).to_numpy(zero_copy_only=False)
         if isinstance(validator, MinLen):
             mask = lengths < validator.min_length
-            violation = Violation(mask, "contains lists shorter than minimum length", _with_length)
+            violation = Violation(mask, "contains lists shorter than minimum length", with_length)
         else:
             mask = lengths > validator.max_length
-            violation = Violation(mask, "contains lists longer than maximum length", _with_length)
+            violation = Violation(mask, "contains lists longer than maximum length", with_length)
     elif isinstance(node, (ListOf, StructOf)):
         # Custom is the only other validator a list or struct allows; it gets Python values
         mask = np.array([not validator.func(value) for value in values.to_pylist()], dtype=bool)
@@ -267,14 +269,8 @@ def _find_nested_violation(
             raise e._with_path(nested_path(column_name, path)) from e
         if found is None:
             return None
-        # Nullable comparisons yield NA where undefined, which is no violation
-        mask = found.mask.fillna(False).astype(bool).to_numpy()
-        violation = Violation(mask, found.message, found.format_value)
+        violation = Violation(found.mask.to_numpy(), found.message, found.format_value)
     return violation if violation.mask.any() else None
-
-
-def _with_length(value: Any) -> str:
-    return f"{value!r} (length: {len(value)})"
 
 
 def _raise_violation(

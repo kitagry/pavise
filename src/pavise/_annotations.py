@@ -157,7 +157,7 @@ def _check_validator_targets(field: Field, column_name: str, path: str) -> None:
         if isinstance(node, StructOf) and not isinstance(validator, Custom):
             raise nested_error(f"{name} cannot be used on a struct; use Custom", column_name, path)
         # Whether values must be unique per list, per column or per struct has no single answer
-        if isinstance(validator, Unique) and path != column_name:
+        if isinstance(validator, Unique):
             raise nested_error(
                 f"{name} cannot be used inside list and struct columns", column_name, path
             )
