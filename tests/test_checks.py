@@ -1,8 +1,15 @@
-from typing import Literal, Protocol, get_type_hints, runtime_checkable
+from typing import Literal, Protocol, TypeVar, get_type_hints, runtime_checkable
 
 import pytest
 
-from pavise.checks import Key, UniqueKeys, dataframe_check, unique
+from pavise.checks import (
+    Key,
+    UniqueCheck,
+    UniqueKeys,
+    dataframe_check,
+    get_dataframe_checks,
+    unique,
+)
 from pavise.types import NotRequiredColumn
 
 
@@ -174,3 +181,14 @@ def test_unique_keys_does_not_make_annotations_columns():
         name: str
 
     assert get_type_hints(Child) == {"id": int, "email": str, "name": str}
+
+
+T_co = TypeVar("T_co", covariant=True)
+
+
+def test_unique_keys_are_inherited_through_a_subscripted_generic_base():
+    class GenericUser(UserColumns, UniqueKeys[Key[Literal["id"]]], Protocol[T_co]): ...
+
+    class Child(GenericUser[int], Protocol): ...
+
+    assert get_dataframe_checks(Child) == [UniqueCheck(columns=("id",))]

@@ -127,10 +127,14 @@ def _register_unique_keys(schema: type) -> None:
     sources: list[tuple[str, tuple[tuple[str, ...], ...]]] = []
     # __orig_bases__ is only in the class's own namespace when one of its bases is subscripted.
     for base in schema.__dict__.get("__orig_bases__", schema.__bases__):
-        if get_origin(base) is UniqueKeys:
+        origin = get_origin(base)
+        if origin is UniqueKeys:
             sources.append((f"{schema.__name__} itself", _parse_unique_keys(schema, base)))
-        elif base in _UNIQUE_KEYS:
-            sources.append((base.__name__, _UNIQUE_KEYS[base]))
+            continue
+        # A subscripted generic base such as Base[int] is registered as Base.
+        base_class = origin or base
+        if base_class in _UNIQUE_KEYS:
+            sources.append((base_class.__name__, _UNIQUE_KEYS[base_class]))
     if not sources:
         return
 
