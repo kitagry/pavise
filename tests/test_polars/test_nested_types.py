@@ -624,7 +624,10 @@ class CustomerSchema(Protocol):
 
 
 def test_protocol_typeddict_and_dataclass_structs_nest_in_each_other() -> None:
-    df = pl.DataFrame({"customer": [{"visits": [{"place": ADDRESS}, {"place": None}]}, None]})
+    # Tags keep the struct holding a null place from being all nulls, which polars 1.0 reads as
+    # a null struct
+    visits = [{"place": ADDRESS, "tags": []}, {"place": None, "tags": ["x"]}]
+    df = pl.DataFrame({"customer": [{"visits": visits}, None]})
     assert isinstance(DataFrame[CustomerSchema](df), pl.DataFrame)
 
     df = pl.DataFrame({"customer": [{"visits": [{"place": {"city": 1, "zip": None}}]}]})
