@@ -1,8 +1,8 @@
-from typing import Protocol, runtime_checkable
+from typing import Literal, Protocol, get_type_hints, runtime_checkable
 
 import pytest
 
-from pavise.checks import dataframe_check, unique
+from pavise.checks import Key, UniqueKeys, dataframe_check, unique
 from pavise.types import NotRequiredColumn
 
 
@@ -77,3 +77,100 @@ def test_unique_rejects_repeated_column():
         unique("user_id", "user_id")(UserSchema)
 
     assert str(exc_info.value) == "unique: column 'user_id' is given more than once"
+
+
+class UserColumns(Protocol):
+    id: int
+    email: str
+
+
+def test_unique_keys_rejects_bare_literal():
+    with pytest.raises(TypeError) as exc_info:
+
+        class Schema(UserColumns, UniqueKeys[Literal["id"]], Protocol):  # pyright: ignore[reportInvalidTypeArguments]
+            pass
+
+    assert str(exc_info.value) == (
+        "UniqueKeys: wrap each key in Key[...], e.g. UniqueKeys[Key[Literal['id']]], "
+        "got typing.Literal['id'] in Schema"
+    )
+
+
+def test_unique_keys_rejects_key_without_literal_columns():
+    with pytest.raises(TypeError) as exc_info:
+
+        class Schema(UserColumns, UniqueKeys[Key[str]], Protocol):
+            pass
+
+    assert str(exc_info.value) == (
+        "Key: list the key columns as a Literal, e.g. Key[Literal['user_id', 'date']], "
+        "got <class 'str'> in Schema"
+    )
+
+
+def test_unique_keys_rejects_column_not_in_schema():
+    with pytest.raises(ValueError) as exc_info:
+
+        class Schema(UserColumns, UniqueKeys[Key[Literal["id", "mail"]]], Protocol):
+            pass
+
+    assert str(exc_info.value) == "UniqueKeys: column 'mail' is not in schema Schema"
+
+
+def test_unique_keys_rejects_index():
+    with pytest.raises(ValueError) as exc_info:
+
+        class Schema(UniqueKeys[Key[Literal["__index__"]]], Protocol):
+            __index__: int
+
+    assert str(exc_info.value) == "UniqueKeys: column '__index__' is not in schema Schema"
+
+
+def test_unique_keys_accepts_annotations_that_cannot_be_evaluated():
+    class Schema(UniqueKeys[Key[Literal["user_id"]]], Protocol):
+        user_id: "UndefinedType"  # noqa: F821  # pyright: ignore[reportUndefinedVariable]
+
+
+class User(UserColumns, UniqueKeys[Key[Literal["id"]]], Protocol): ...
+
+
+def test_unique_keys_rejects_adding_keys_to_a_schema_that_has_keys():
+    with pytest.raises(TypeError) as exc_info:
+
+        class StrictUser(User, UniqueKeys[Key[Literal["id"]] | Key[Literal["email"]]], Protocol):
+            pass
+
+    assert str(exc_info.value) == (
+        "UniqueKeys: StrictUser gets different unique keys from more than one place "
+        "(User, StrictUser itself), and type checkers only keep the first. "
+        "Declare the columns in a Protocol without keys and combine it with the keys "
+        "in one place, e.g. class StrictUser(Columns, UniqueKeys[...], Protocol)"
+    )
+
+
+def test_unique_keys_rejects_combining_schemas_with_different_keys():
+    class ContactableUser(UserColumns, UniqueKeys[Key[Literal["email"]]], Protocol): ...
+
+    with pytest.raises(TypeError) as exc_info:
+
+        class Both(User, ContactableUser, Protocol):  # pyright: ignore[reportGeneralTypeIssues]
+            pass
+
+    assert str(exc_info.value).startswith(
+        "UniqueKeys: Both gets different unique keys from more than one place "
+        "(User, ContactableUser)"
+    )
+
+
+def test_unique_keys_accepts_combining_schemas_with_the_same_keys():
+    class SameKeys(UserColumns, UniqueKeys[Key[Literal["id"]]], Protocol): ...
+
+    class Both(User, SameKeys, Protocol):
+        pass
+
+
+def test_unique_keys_does_not_make_annotations_columns():
+    class Child(User, Protocol):
+        name: str
+
+    assert get_type_hints(Child) == {"id": int, "email": str, "name": str}
