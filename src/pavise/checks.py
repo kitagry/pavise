@@ -5,8 +5,9 @@ class decorators.
 They are stored outside the Protocol's annotations and members, so they do not affect
 structural subtyping: ``DataFrame[Child]`` stays compatible with ``DataFrame[Parent]``.
 
-Unique keys can instead be declared in the type with the ``UniqueKeys`` marker, so that a
-type checker tells a schema with the keys apart from one with the same columns but no keys.
+Unique keys and checks can instead be declared in the type with the ``UniqueKeys`` and
+``Checked`` markers, so that a type checker tells a schema with them apart from one with
+the same columns but without them.
 
 The actual evaluation is implemented in backend-specific modules:
 - _pandas.validation for pandas
@@ -18,6 +19,7 @@ import types
 import typing
 import warnings
 import weakref
+from abc import ABC, abstractmethod
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import (
@@ -118,43 +120,93 @@ class UniqueKeys(Protocol[KeyT_contra]):
 
         def __init_subclass__(cls, **kwargs):
             super().__init_subclass__(**kwargs)
-            _register_unique_keys(cls)
+            _UNIQUE_KEYS.register(cls)
 
 
-# Unique keys of each UniqueKeys subclass, including the keys it inherits.
-_UNIQUE_KEYS: "weakref.WeakKeyDictionary[type, tuple[tuple[str, ...], ...]]" = (
-    weakref.WeakKeyDictionary()
-)
+class Check(ABC):
+    """A DataFrame-level check that can be named in a type with ``Checked``.
+
+    ``__call__`` takes the backend's native DataFrame and returns what a
+    ``@dataframe_check`` function returns: a boolean per row (pandas Series, polars Series
+    or polars Expr) or a single bool. The class name is the check's name in errors.
+    """
+
+    @abstractmethod
+    def __call__(self, df: Any) -> Any: ...
 
 
-def _register_unique_keys(schema: type) -> None:
-    sources: list[tuple[str, tuple[tuple[str, ...], ...]]] = []
-    parents: list[str] = []
-    # __orig_bases__ is only in the class's own namespace when one of its bases is subscripted.
-    for base in schema.__dict__.get("__orig_bases__", schema.__bases__):
-        origin = get_origin(base)
-        if origin is UniqueKeys:
-            sources.append((f"{schema.__name__} itself", _parse_unique_keys(schema, base)))
-            continue
-        # A subscripted generic base such as Base[int] is registered as Base.
-        base_class = origin or base
-        if base_class in _UNIQUE_KEYS:
-            sources.append((base_class.__name__, _UNIQUE_KEYS[base_class]))
-            parents.append(base_class.__name__)
-    if not sources:
-        return
+CheckT_contra = TypeVar("CheckT_contra", bound=Check, contravariant=True)
 
-    if len({frozenset(frozenset(key) for key in keys) for _, keys in sources}) > 1:
-        names = ", ".join(name for name, _ in sources)
-        raise TypeError(
-            f"UniqueKeys: {schema.__name__} gets different unique keys from more than one "
-            f"place ({names}), and type checkers keep only one of them. Protocols are "
-            f"structural, so {schema.__name__} can be used where {parents[0]} is expected "
-            "without inheriting from it: combine a Protocol of only the columns with the "
-            f"keys, e.g. class {schema.__name__}(Columns, UniqueKeys[...], Protocol), or "
-            f"declare the columns in {schema.__name__} itself"
+
+class Checked(Protocol[CheckT_contra]):
+    """Declare the DataFrame-level checks of a schema in its type.
+
+    The type parameter is a ``Check`` subclass or a union of them. A schema with more
+    checks can be used where a schema with fewer of them is expected, but not the other
+    way around. Combine it with a Protocol of the columns, as with ``UniqueKeys``::
+
+        class StartBeforeEnd(Check):
+            def __call__(self, df):
+                return df["start_at"] < df["end_at"]
+
+        class Event(EventColumns, Checked[StartBeforeEnd], Protocol): ...
+    """
+
+    # The parameter carries the checks for type checkers, as in UniqueKeys.
+    def __pavise_check__(self, check: CheckT_contra, /) -> None: ...
+
+    if not TYPE_CHECKING:
+
+        def __init_subclass__(cls, **kwargs):
+            super().__init_subclass__(**kwargs)
+            _CHECKED.register(cls)
+
+
+ItemT = TypeVar("ItemT")
+
+
+class _MarkerRegistry(Generic[ItemT]):
+    """What each subclass of a marker Protocol declares, including what it inherits."""
+
+    def __init__(
+        self,
+        marker: type,
+        what: str,
+        parse: Callable[[type, Any], tuple[ItemT, ...]],
+        identity: Callable[[ItemT], Any],
+    ) -> None:
+        self._marker = marker
+        self._what = what
+        self._parse = parse
+        self._identity = identity
+        self._items: weakref.WeakKeyDictionary[type, tuple[ItemT, ...]] = (
+            weakref.WeakKeyDictionary()
         )
-    _UNIQUE_KEYS[schema] = sources[0][1]
+
+    def get(self, schema: type) -> tuple[ItemT, ...]:
+        return self._items.get(schema, ())
+
+    def register(self, schema: type) -> None:
+        sources: list[tuple[str, tuple[ItemT, ...]]] = []
+        # __orig_bases__ is only in the class's own namespace when a base is subscripted.
+        for base in schema.__dict__.get("__orig_bases__", schema.__bases__):
+            if get_origin(base) is self._marker:
+                sources.append((f"{schema.__name__} itself", self._parse(schema, base)))
+            elif base in self._items:
+                sources.append((base.__name__, self._items[base]))
+        if not sources:
+            return
+
+        if len({frozenset(map(self._identity, items)) for _, items in sources}) > 1:
+            name = self._marker.__name__
+            raise TypeError(
+                f"{name}: {schema.__name__} gets different {self._what} from more than one "
+                f"place ({', '.join(source for source, _ in sources)}), and type checkers "
+                f"only keep the first. Declare the columns in a Protocol without "
+                f"{self._what} and combine it with the {self._what} in one place, e.g. "
+                f"class {schema.__name__}(Columns, {name}[...], Protocol)"
+            )
+        self._items[schema] = sources[0][1]
 
 
 def _parse_unique_keys(schema: type, marker: Any) -> tuple[tuple[str, ...], ...]:
@@ -182,6 +234,18 @@ def _parse_unique_keys(schema: type, marker: Any) -> tuple[tuple[str, ...], ...]
     return tuple(keys)
 
 
+def _parse_checked(schema: type, marker: Any) -> tuple[DataFrameCheck, ...]:
+    checks = []
+    for check in _union_members(get_args(marker)[0]):
+        if not (isinstance(check, type) and issubclass(check, Check)):
+            raise TypeError(
+                "Checked: list Check subclasses, e.g. Checked[StartBeforeEnd], "
+                f"got {check!r} in {schema.__name__}"
+            )
+        checks.append(DataFrameCheck(func=check(), name=check.__name__))
+    return tuple(checks)
+
+
 def _union_members(tp: Any) -> tuple[Any, ...]:
     tp = _resolve_type_alias(tp)
     if get_origin(tp) in (Union, types.UnionType):
@@ -200,6 +264,14 @@ def _resolve_type_alias(tp: Any) -> Any:
     while isinstance(tp, _TYPE_ALIAS_TYPES):
         tp = tp.__value__
     return tp
+
+
+_UNIQUE_KEYS: _MarkerRegistry[tuple[str, ...]] = _MarkerRegistry(
+    UniqueKeys, "unique keys", _parse_unique_keys, frozenset
+)
+_CHECKED: _MarkerRegistry[DataFrameCheck] = _MarkerRegistry(
+    Checked, "checks", _parse_checked, lambda check: type(check.func)
+)
 
 
 def dataframe_check(func: Callable[[Any], Any], *, name: str | None = None) -> Callable[[T], T]:
@@ -291,11 +363,13 @@ def _annotated_names(schema: type) -> list[str]:
 
 
 def get_dataframe_checks(schema: type) -> list[DataFrameCheck | UniqueCheck]:
-    """Collect the keys declared with ``UniqueKeys``, then the checks attached to a schema
-    and its base Protocols, base classes first."""
+    """Collect the keys declared with ``UniqueKeys`` and the checks declared with
+    ``Checked``, then the checks attached to a schema and its base Protocols, base classes
+    first."""
     checks: list[DataFrameCheck | UniqueCheck] = [
-        UniqueCheck(columns=key) for key in _UNIQUE_KEYS.get(schema, ())
+        UniqueCheck(columns=key) for key in _UNIQUE_KEYS.get(schema)
     ]
+    checks.extend(_CHECKED.get(schema))
     for cls in reversed(schema.__mro__):
         checks.extend(_CHECKS.get(cls, []))
     return checks

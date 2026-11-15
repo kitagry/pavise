@@ -4,6 +4,8 @@ import pytest
 from typing_extensions import TypeAliasType
 
 from pavise.checks import (
+    Check,
+    Checked,
     Key,
     UniqueCheck,
     UniqueKeys,
@@ -223,3 +225,62 @@ def test_unique_is_deprecated_in_favor_of_unique_keys():
         "class Schema(UniqueKeys[Key[Literal['user_id', 'date']]], Protocol)"
     )
     assert record[0].filename == __file__
+
+
+class StartBeforeEnd(Check):
+    def __call__(self, df):
+        return df["start_at"] < df["end_at"]
+
+
+class EventColumns(Protocol):
+    start_at: int
+    end_at: int
+
+
+def test_checked_rejects_types_that_are_not_checks():
+    with pytest.raises(TypeError) as exc_info:
+
+        class Schema(EventColumns, Checked[int], Protocol):  # pyright: ignore[reportInvalidTypeArguments]
+            pass
+
+    assert str(exc_info.value) == (
+        "Checked: list Check subclasses, e.g. Checked[StartBeforeEnd], got <class 'int'> in Schema"
+    )
+
+
+def test_checked_rejects_check_without_call():
+    class Incomplete(Check):
+        pass
+
+    with pytest.raises(TypeError, match="Incomplete"):
+
+        class Schema(EventColumns, Checked[Incomplete], Protocol):
+            pass
+
+
+class Event(EventColumns, Checked[StartBeforeEnd], Protocol): ...
+
+
+def test_checked_rejects_adding_checks_to_a_schema_that_has_checks():
+    class PositiveStart(Check):
+        def __call__(self, df):
+            return df["start_at"] > 0
+
+    with pytest.raises(TypeError) as exc_info:
+
+        class StrictEvent(Event, Checked[StartBeforeEnd | PositiveStart], Protocol):
+            pass
+
+    assert str(exc_info.value) == (
+        "Checked: StrictEvent gets different checks from more than one place "
+        "(Event, StrictEvent itself), and type checkers only keep the first. "
+        "Declare the columns in a Protocol without checks and combine it with the checks "
+        "in one place, e.g. class StrictEvent(Columns, Checked[...], Protocol)"
+    )
+
+
+def test_checked_and_unique_keys_can_be_combined():
+    class Schema(
+        EventColumns, UniqueKeys[Key[Literal["start_at"]]], Checked[StartBeforeEnd], Protocol
+    ):
+        pass
