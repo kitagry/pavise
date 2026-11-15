@@ -96,8 +96,9 @@ marks a field that may be absent.
 
 Type checkers treat a struct column like any attribute of a ``Protocol``: as it can be
 reassigned, ``DataFrame[A]`` is accepted where ``DataFrame[B]`` is expected only when their
-struct columns have the same type. Two ``TypedDict`` classes with the same keys count as the
-same type, while two ``Protocol`` classes or dataclasses must be the same class.
+struct columns have the same type. Two ``TypedDict`` classes with the same keys, value types and
+required keys count as the same type, while two ``Protocol`` classes or dataclasses must be the
+same class.
 
 pydantic models, ``NamedTuple`` and generic schemas such as ``Box[int]`` cannot be used as
 structs, and Pavise raises ``ValidationError`` for them.

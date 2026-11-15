@@ -24,3 +24,8 @@ class AddressData:
     zip: str = ""
     kind: typing.ClassVar[str] = "address"
     check: dataclasses.InitVar[bool] = False
+
+
+@dataclasses.dataclass
+class LabeledData:
+    label: typing.Literal["home", "work"]

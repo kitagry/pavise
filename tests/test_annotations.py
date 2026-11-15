@@ -324,6 +324,45 @@ def test_parse_dataclass_with_string_annotations():
     assert field.node.fields == {"city": Field(Scalar(str)), "zip": Field(Scalar(str))}
 
 
+@dataclass
+class CityLabeledData(future_annotations_schemas.LabeledData):
+    city: str = ""
+
+
+def test_parse_dataclass_resolves_inherited_string_annotations_where_written():
+    field = parse_annotation(CityLabeledData, "a")
+    assert isinstance(field.node, StructOf)
+    assert field.node.fields == {
+        "label": Field(Scalar(Literal["home", "work"])),
+        "city": Field(Scalar(str)),
+    }
+
+
+@dataclass
+class NotRequiredData:
+    zip: NotRequired[str]  # pyright: ignore[reportInvalidTypeForm]
+
+
+class ReadOnlyProtocol(Protocol):
+    zip: ReadOnly[str]  # pyright: ignore[reportInvalidTypeForm]
+
+
+@pytest.mark.parametrize(
+    "schema, message",
+    [
+        (
+            NotRequiredData,
+            "NotRequired can only be used in a TypedDict; "
+            "use NotRequiredColumn for a field that may be absent",
+        ),
+        (ReadOnlyProtocol, "ReadOnly can only be used in a TypedDict"),
+    ],
+)
+def test_parse_rejects_typeddict_qualifiers_outside_typeddict(schema: type, message: str):
+    with pytest.raises(ValidationError, match=f"^Column 'col': {message}$"):
+        parse_annotation(schema, "col")
+
+
 T = TypeVar("T")
 
 

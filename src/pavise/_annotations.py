@@ -168,12 +168,30 @@ _NOT_REQUIRED = _qualifiers("NotRequired")
 _READ_ONLY = _qualifiers("ReadOnly")
 
 
+def _typeddict_qualifier_name(hint: Any) -> str | None:
+    origin = get_origin(hint)
+    for name, forms in (
+        ("Required", _REQUIRED),
+        ("NotRequired", _NOT_REQUIRED),
+        ("ReadOnly", _READ_ONLY),
+    ):
+        if origin in forms:
+            return name
+    return None
+
+
 def _struct_fields(schema: type) -> dict[str, tuple[Any, bool]]:
     """Each field's annotation and whether a TypedDict lets the field be missing."""
     if dataclasses.is_dataclass(schema):
-        # fields() leaves out ClassVar and InitVar. Its string types are resolved like other
-        # forward references, since get_type_hints fails on a string InitVar on Python 3.10.
-        return {f.name: (f.type, False) for f in dataclasses.fields(schema)}
+        # fields() leaves out ClassVar and InitVar. get_type_hints resolves string types in the
+        # module of the class that declares each field, but fails on a string InitVar on
+        # Python 3.10 and on names local to a function, so those are resolved like other
+        # forward references.
+        try:
+            hints = get_type_hints(schema, include_extras=True)
+        except (NameError, TypeError):
+            hints = {}
+        return {f.name: (hints.get(f.name, f.type), False) for f in dataclasses.fields(schema)}
     hints = get_type_hints(schema, include_extras=True)
     if not is_typeddict(schema):
         return {name: (hint, False) for name, hint in hints.items()}
@@ -196,12 +214,13 @@ def _strip_typeddict_qualifiers(hint: Any) -> tuple[Any, bool | None]:
         inner, *metadata = get_args(hint)
         inner, not_required = _strip_typeddict_qualifiers(inner)
         return Annotated[(inner, *metadata)], not_required
-    if origin in _REQUIRED or origin in _NOT_REQUIRED or origin in _READ_ONLY:
+    qualifier = _typeddict_qualifier_name(hint)
+    if qualifier is not None:
         (inner,) = get_args(hint)
         inner, not_required = _strip_typeddict_qualifiers(inner)
-        if origin in _READ_ONLY:
+        if qualifier == "ReadOnly":
             return inner, not_required
-        return inner, origin in _NOT_REQUIRED
+        return inner, qualifier == "NotRequired"
     return hint, None
 
 
@@ -344,11 +363,12 @@ def _parse(
                 column_name=column_name,
             )
         fields = {}
+        is_dict = is_typeddict(base_type)
         for name, (hint, missing_ok) in _struct_fields(base_type).items():
             field = _parse(
                 hint, column_name, base_type, allow_not_required=True, seen=seen | {base_type}
             )
-            if field.not_required and is_typeddict(base_type):
+            if field.not_required and is_dict:
                 raise ValidationError(
                     "NotRequiredColumn cannot be used in a TypedDict; use NotRequired",
                     column_name=column_name,
@@ -365,6 +385,11 @@ def _parse(
             "(union element types are not supported)",
             column_name=column_name,
         )
+    elif (qualifier := _typeddict_qualifier_name(base_type)) is not None:
+        message = f"{qualifier} can only be used in a TypedDict"
+        if qualifier != "ReadOnly":
+            message += "; use NotRequiredColumn for a field that may be absent"
+        raise ValidationError(message, column_name=column_name)
     else:
         node = Scalar(base_type)
         # A top-level Literal column accepts nulls when None is one of its values
