@@ -1,7 +1,9 @@
-from typing import Annotated, Any, Literal, Protocol
+from dataclasses import dataclass
+from typing import Annotated, Any, Literal, NamedTuple, Protocol, TypedDict
 
 import polars as pl
 import pytest
+from typing_extensions import NotRequired
 
 from pavise.checks import dataframe_check
 from pavise.exceptions import ValidationError
@@ -543,3 +545,147 @@ def test_custom_on_elements_accepts_column_with_only_empty_lists() -> None:
         items: list[Annotated[int, Custom(lambda v: v > 0, "must be positive")]]
 
     DataFrame[Schema](pl.DataFrame({"items": pl.Series([[], []], dtype=pl.List(pl.Int64))}))
+
+
+class AddressDict(TypedDict):
+    city: str
+    zip: NotRequired[Annotated[str, Regex(r"^\d{3}-\d{4}$")]]
+
+
+@dataclass
+class AddressData:
+    city: str
+    zip: str | None = None
+
+
+class AddressDictSchema(Protocol):
+    address: AddressDict
+
+
+class AddressDataSchema(Protocol):
+    address: AddressData
+
+
+@pytest.mark.parametrize(
+    "schema, data",
+    [
+        (AddressDictSchema, {"address": [ADDRESS]}),
+        (AddressDictSchema, {"address": [{"city": "Tokyo"}]}),
+        (AddressDataSchema, {"address": [ADDRESS, {"city": "Osaka", "zip": None}]}),
+    ],
+)
+def test_typeddict_and_dataclass_structs_accept_matching_data(
+    schema: type, data: dict[str, Any]
+) -> None:
+    result = DataFrame[schema](pl.DataFrame(data))
+    assert isinstance(result, pl.DataFrame)
+
+
+@pytest.mark.parametrize(
+    "schema, data, message",
+    [
+        (
+            AddressDictSchema,
+            {"address": [{"zip": "100-0001"}]},
+            r"Column 'address': missing struct field 'city' \(found fields: \['zip'\]\)",
+        ),
+        (
+            AddressDictSchema,
+            {"address": [{"city": "Tokyo", "zip": 1000001}]},
+            r"Column 'address.zip': expected str, got Int64",
+        ),
+        # A default is for building instances, not a field that may be missing
+        (
+            AddressDataSchema,
+            {"address": [{"city": "Tokyo"}]},
+            r"Column 'address': missing struct field 'zip' \(found fields: \['city'\]\)",
+        ),
+    ],
+)
+def test_typeddict_and_dataclass_structs_reject_invalid_data(
+    schema: type, data: dict[str, Any], message: str
+) -> None:
+    with pytest.raises(ValidationError, match=f"^{message}$"):
+        DataFrame[schema](pl.DataFrame(data))
+
+
+class Visit(TypedDict):
+    place: AddressData | None
+    tags: NotRequired[list[str]]
+
+
+@dataclass
+class Customer:
+    visits: list[Visit]
+
+
+class CustomerSchema(Protocol):
+    customer: Customer | None
+
+
+def test_protocol_typeddict_and_dataclass_structs_nest_in_each_other() -> None:
+    df = pl.DataFrame({"customer": [{"visits": [{"place": ADDRESS}, {"place": None}]}, None]})
+    assert isinstance(DataFrame[CustomerSchema](df), pl.DataFrame)
+
+    df = pl.DataFrame({"customer": [{"visits": [{"place": {"city": 1, "zip": None}}]}]})
+    with pytest.raises(ValidationError, match=r"^Column 'customer.visits\[\].place.city': "):
+        DataFrame[CustomerSchema](df)
+
+
+@pytest.mark.parametrize(
+    "schema, expected",
+    [
+        (AddressDictSchema, pl.Struct({"city": pl.Utf8, "zip": pl.Utf8})),
+        (AddressDataSchema, pl.Struct({"city": pl.Utf8, "zip": pl.Utf8})),
+    ],
+)
+def test_make_empty_builds_typeddict_and_dataclass_structs(
+    schema: type, expected: pl.DataType
+) -> None:
+    (column,) = DataFrame[schema].make_empty().schema.values()
+    assert column == expected
+
+
+def test_custom_on_dataclass_struct_receives_dicts() -> None:
+    received: list[Any] = []
+
+    class Schema(Protocol):
+        address: Annotated[AddressData, Custom(lambda v: received.append(v) is None, "x")]
+
+    DataFrame[Schema](pl.DataFrame({"address": [ADDRESS]}))
+    assert received == [ADDRESS]
+
+
+class AddressTuple(NamedTuple):
+    city: str
+
+
+def test_named_tuple_column_reports_supported_struct_schemas() -> None:
+    class Schema(Protocol):
+        address: AddressTuple
+
+    with pytest.raises(
+        ValidationError,
+        match=r"^Column 'address': unsupported type: AddressTuple "
+        r"\(struct schemas must be a Protocol, TypedDict or dataclass\)$",
+    ):
+        DataFrame[Schema](pl.DataFrame({"address": [ADDRESS]}))
+
+
+class SameShapedAddressDict(TypedDict):
+    city: str
+    zip: NotRequired[Annotated[str, Regex(r"^\d{3}-\d{4}$")]]
+
+
+class SameShapedAddressDictSchema(Protocol):
+    address: SameShapedAddressDict
+
+
+def count_addresses(df: DataFrame[AddressDictSchema]) -> int:
+    return len(df)
+
+
+def test_same_shaped_typeddict_structs_are_interchangeable() -> None:
+    # pyright verifies this call: TypedDicts with the same keys are the same type to it
+    df = DataFrame[SameShapedAddressDictSchema](pl.DataFrame({"address": [ADDRESS]}))
+    assert count_addresses(df) == 1

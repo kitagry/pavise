@@ -2,7 +2,8 @@ Nested Types
 ============
 
 Columns can hold lists and structs. Write a list column as ``list[X]`` and a struct column
-as a nested ``Protocol``:
+as a nested ``Protocol`` (or a ``TypedDict`` or dataclass, see
+:ref:`typeddict-and-dataclass-structs`):
 
 .. code-block:: python
 
@@ -48,6 +49,58 @@ Mark a struct field that may be absent with ``NotRequiredColumn``:
    class PartialAddress(Protocol):
        city: str
        zip: NotRequiredColumn[str]
+
+.. _typeddict-and-dataclass-structs:
+
+TypedDict and Dataclass Structs
+-------------------------------
+
+A struct can also be described by a ``TypedDict`` or a dataclass, and the three can be nested
+in each other. A ``TypedDict`` describes a struct value as Python sees it: ``Series.to_list()``
+returns dicts.
+
+In a ``TypedDict``, a key marked with ``NotRequired`` (or left unmarked in a ``total=False``
+``TypedDict``) may be absent from the struct. ``NotRequiredColumn`` cannot be used in a
+``TypedDict``.
+
+Every field of a dataclass must be in the struct, including fields with a default value: a
+default is for building instances, and a dataclass turned into a dict always has the field.
+``Optional`` fields may hold nulls, as elsewhere. As in a ``Protocol``, ``NotRequiredColumn``
+marks a field that may be absent.
+
+.. code-block:: python
+
+   from dataclasses import dataclass
+   from typing import TypedDict
+
+   from typing_extensions import NotRequired
+
+   class Place(TypedDict):
+       city: str
+       zip: NotRequired[str]   # may be absent
+
+   @dataclass
+   class Visit:
+       place: Place
+       note: str | None = None   # must be present, may be null
+
+   class VisitSchema(Protocol):
+       visits: list[Visit]
+
+   df = pl.DataFrame({
+       "visits": [[{"place": {"city": "Tokyo"}, "note": None}], []],
+   })
+   validated_df = DataFrame[VisitSchema](df)
+
+``Custom`` on a struct receives a ``dict`` whichever kind of schema describes it.
+
+Type checkers treat a struct column like any attribute of a ``Protocol``: as it can be
+reassigned, ``DataFrame[A]`` is accepted where ``DataFrame[B]`` is expected only when their
+struct columns have the same type. Two ``TypedDict`` classes with the same keys count as the
+same type, while two ``Protocol`` classes or dataclasses must be the same class.
+
+pydantic models, ``NamedTuple`` and generic schemas such as ``Box[int]`` cannot be used as
+structs, and Pavise raises ``ValidationError`` for them.
 
 Validators
 ----------
@@ -107,9 +160,9 @@ row's value as a Python ``list`` or ``dict``:
 values must be unique within a list or across rows. Pavise raises ``ValidationError`` for these
 when it checks the schema, instead of skipping them silently.
 
-``@dataframe_check`` checks run on whole DataFrames, so checks attached to a ``Protocol`` used as
-a struct are not run on the struct values. They still run when the ``Protocol`` is used as a
-DataFrame schema itself.
+``@dataframe_check`` checks run on whole DataFrames, so checks attached to a ``Protocol``,
+``TypedDict`` or dataclass used as a struct are not run on the struct values. They still run
+when the ``Protocol`` is used as a DataFrame schema itself.
 
 Supported Dtypes
 ----------------
@@ -123,7 +176,7 @@ Supported Dtypes
    * - ``list[X]``
      - ``pl.List`` or ``pl.Array``
      - ``pd.ArrowDtype`` of a pyarrow list, large list or fixed size list
-   * - Nested ``Protocol``
+   * - Nested ``Protocol``, ``TypedDict`` or dataclass
      - ``pl.Struct``
      - ``pd.ArrowDtype`` of a pyarrow struct
 

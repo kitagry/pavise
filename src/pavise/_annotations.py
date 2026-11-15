@@ -1,14 +1,16 @@
 """Backend-independent parsing of schema annotations.
 
 Column annotations are unwrapped one level at a time (NotRequiredColumn, Annotated, Optional).
-List and Struct columns (``list[X]`` and nested Protocols) are parsed into a tree of
-``Field`` nodes, which each backend compares with its nested dtypes.
+List and Struct columns (``list[X]`` and nested Protocols, TypedDicts and dataclasses) are parsed
+into a tree of ``Field`` nodes, which each backend compares with its nested dtypes.
 """
 
 from __future__ import annotations
 
+import dataclasses
 import sys
 import types
+import typing
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import (
@@ -22,7 +24,8 @@ from typing import (
     get_type_hints,
 )
 
-from typing_extensions import is_protocol
+import typing_extensions
+from typing_extensions import is_protocol, is_typeddict
 
 from pavise.exceptions import ValidationError
 from pavise.types import NotRequiredColumn
@@ -105,7 +108,7 @@ class ListOf:
 
 @dataclass(frozen=True)
 class StructOf:
-    """A struct column or value, described by a nested Protocol."""
+    """A struct column or value, described by a nested Protocol, TypedDict or dataclass."""
 
     schema: type
     fields: dict[str, Field]
@@ -122,12 +125,84 @@ class Field:
 
 
 def is_nested_type(base_type: Any) -> bool:
-    """Whether a base type from _extract_type_and_validators is a List or Struct annotation."""
-    return base_type is list or get_origin(base_type) is list or _is_struct_schema(base_type)
+    """
+    Whether a base type from _extract_type_and_validators is a List or Struct annotation.
+
+    Struct schemas pavise does not support count too, so parsing them reports why.
+    """
+    return (
+        base_type is list
+        or get_origin(base_type) is list
+        or _is_struct_schema(base_type)
+        or _unsupported_struct_reason(base_type) is not None
+    )
 
 
 def _is_struct_schema(base_type: Any) -> bool:
-    return isinstance(base_type, type) and is_protocol(base_type)
+    return isinstance(base_type, type) and (
+        is_protocol(base_type) or is_typeddict(base_type) or dataclasses.is_dataclass(base_type)
+    )
+
+
+def _unsupported_struct_reason(base_type: Any) -> str | None:
+    """Why a type written as a struct schema cannot be one, or None if it is no such type."""
+    if _is_struct_schema(get_origin(base_type)):
+        return "generic struct schemas are not supported"
+    if not isinstance(base_type, type):
+        return None
+    is_named_tuple = issubclass(base_type, tuple) and hasattr(base_type, "_fields")
+    # Detected by module so that pavise does not need to import pydantic
+    is_pydantic = any(c.__module__.split(".")[0] == "pydantic" for c in base_type.__mro__)
+    if is_named_tuple or is_pydantic:
+        return "struct schemas must be a Protocol, TypedDict or dataclass"
+    return None
+
+
+def _qualifiers(name: str) -> frozenset[Any]:
+    # Older typing_extensions define their own forms even where typing has them
+    return frozenset(getattr(m, name) for m in (typing, typing_extensions) if hasattr(m, name))
+
+
+_REQUIRED = _qualifiers("Required")
+_NOT_REQUIRED = _qualifiers("NotRequired")
+_READ_ONLY = _qualifiers("ReadOnly")
+
+
+def _struct_fields(schema: type) -> dict[str, tuple[Any, bool]]:
+    """Each field's annotation and whether a TypedDict lets the field be missing."""
+    if dataclasses.is_dataclass(schema):
+        # fields() leaves out ClassVar and InitVar. Its string types are resolved like other
+        # forward references, since get_type_hints fails on a string InitVar on Python 3.10.
+        return {f.name: (f.type, False) for f in dataclasses.fields(schema)}
+    hints = get_type_hints(schema, include_extras=True)
+    if not is_typeddict(schema):
+        return {name: (hint, False) for name, hint in hints.items()}
+
+    fields = {}
+    for name, hint in hints.items():
+        hint, not_required = _strip_typeddict_qualifiers(hint)
+        if not_required is None:
+            # __optional_keys__ misses NotRequired written as a string (from __future__ import
+            # annotations, or typing.TypedDict on Python 3.10), but always reflects total=False
+            not_required = name in schema.__optional_keys__
+        fields[name] = (hint, not_required)
+    return fields
+
+
+def _strip_typeddict_qualifiers(hint: Any) -> tuple[Any, bool | None]:
+    """Remove Required, NotRequired and ReadOnly, returning whether NotRequired was given."""
+    origin = get_origin(hint)
+    if origin is Annotated:
+        inner, *metadata = get_args(hint)
+        inner, not_required = _strip_typeddict_qualifiers(inner)
+        return Annotated[(inner, *metadata)], not_required
+    if origin in _REQUIRED or origin in _NOT_REQUIRED or origin in _READ_ONLY:
+        (inner,) = get_args(hint)
+        inner, not_required = _strip_typeddict_qualifiers(inner)
+        if origin in _READ_ONLY:
+            return inner, not_required
+        return inner, origin in _NOT_REQUIRED
+    return hint, None
 
 
 def parse_annotation(annotation: Any, column_name: str, owner: type | None = None) -> Field:
@@ -268,15 +343,21 @@ def _parse(
                 f"recursive schema is not supported: {base_type.__name__}",
                 column_name=column_name,
             )
-        hints = get_type_hints(base_type, include_extras=True)
-        node = StructOf(
-            base_type,
-            {
-                name: _parse(
-                    hint, column_name, base_type, allow_not_required=True, seen=seen | {base_type}
+        fields = {}
+        for name, (hint, missing_ok) in _struct_fields(base_type).items():
+            field = _parse(
+                hint, column_name, base_type, allow_not_required=True, seen=seen | {base_type}
+            )
+            if field.not_required and is_typeddict(base_type):
+                raise ValidationError(
+                    "NotRequiredColumn cannot be used in a TypedDict; use NotRequired",
+                    column_name=column_name,
                 )
-                for name, hint in hints.items()
-            },
+            fields[name] = dataclasses.replace(field, not_required=field.not_required or missing_ok)
+        node = StructOf(base_type, fields)
+    elif (reason := _unsupported_struct_reason(base_type)) is not None:
+        raise ValidationError(
+            f"unsupported type: {_type_name(base_type)} ({reason})", column_name=column_name
         )
     elif isinstance(base_type, tuple):
         raise ValidationError(
@@ -308,4 +389,6 @@ def format_field(field: Field) -> str:
 def _type_name(t: Any) -> str:
     if get_origin(t) is Literal:
         return f"Literal[{', '.join(repr(v) for v in get_args(t))}]"
+    if _is_struct_schema(get_origin(t)):
+        return f"{get_origin(t).__name__}[{', '.join(_type_name(a) for a in get_args(t))}]"
     return getattr(t, "__name__", str(t))

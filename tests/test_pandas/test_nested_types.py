@@ -1,7 +1,9 @@
-from typing import Annotated, Any, Literal, Protocol
+from dataclasses import dataclass
+from typing import Annotated, Any, Literal, NamedTuple, Protocol, TypedDict
 
 import pandas as pd
 import pytest
+from typing_extensions import NotRequired
 
 from pavise.exceptions import ValidationError
 from pavise.pandas import DataFrame
@@ -431,3 +433,116 @@ def test_custom_on_list_does_not_see_null_elements_the_annotation_rejects() -> N
     df = arrow_frame("items", [[1, None]], pa.list_(pa.int64()))
     message = _validation_message(df, Schema)
     assert message.startswith("Column 'items[]': is non-optional but contains null values")
+
+
+class AddressDict(TypedDict):
+    city: str
+    zip: NotRequired[str]
+
+
+@dataclass
+class AddressData:
+    city: str
+    zip: str | None = None
+
+
+class AddressDictSchema(Protocol):
+    address: AddressDict
+
+
+class AddressDataSchema(Protocol):
+    address: AddressData
+
+
+CITY_TYPE = pa.struct([("city", pa.string())])
+
+
+@pytest.mark.parametrize(
+    "schema, df",
+    [
+        (AddressDictSchema, arrow_frame("address", [ADDRESS], ADDRESS_TYPE)),
+        (AddressDictSchema, arrow_frame("address", [{"city": "Tokyo"}], CITY_TYPE)),
+        (
+            AddressDataSchema,
+            arrow_frame("address", [ADDRESS, {"city": "Osaka", "zip": None}], ADDRESS_TYPE),
+        ),
+    ],
+)
+def test_typeddict_and_dataclass_structs_accept_matching_data(
+    schema: type, df: pd.DataFrame
+) -> None:
+    result = DataFrame[schema](df)
+    assert isinstance(result, pd.DataFrame)
+
+
+@pytest.mark.parametrize(
+    "schema, df, message",
+    [
+        (
+            AddressDictSchema,
+            arrow_frame("address", [{"zip": "100-0001"}], pa.struct([("zip", pa.string())])),
+            r"Column 'address': missing struct field 'city' \(found fields: \['zip'\]\)",
+        ),
+        # A default is for building instances, not a field that may be missing
+        (
+            AddressDataSchema,
+            arrow_frame("address", [{"city": "Tokyo"}], CITY_TYPE),
+            r"Column 'address': missing struct field 'zip' \(found fields: \['city'\]\)",
+        ),
+    ],
+)
+def test_typeddict_and_dataclass_structs_reject_invalid_data(
+    schema: type, df: pd.DataFrame, message: str
+) -> None:
+    with pytest.raises(ValidationError, match=f"^{message}$"):
+        DataFrame[schema](df)
+
+
+class Visit(TypedDict):
+    place: AddressData | None
+
+
+@dataclass
+class Customer:
+    visits: list[Visit]
+
+
+class CustomerSchema(Protocol):
+    customer: Customer | None
+
+
+def test_protocol_typeddict_and_dataclass_structs_nest_in_each_other() -> None:
+    customer_type = pa.struct([("visits", pa.list_(pa.struct([("place", ADDRESS_TYPE)])))])
+    df = arrow_frame(
+        "customer", [{"visits": [{"place": ADDRESS}, {"place": None}]}, None], customer_type
+    )
+    assert isinstance(DataFrame[CustomerSchema](df), pd.DataFrame)
+
+    place = {"city": None, "zip": None}
+    df = arrow_frame("customer", [{"visits": [{"place": place}]}], customer_type)
+    with pytest.raises(
+        ValidationError, match=r"^Column 'customer.visits\[\].place.city': is non-optional"
+    ):
+        DataFrame[CustomerSchema](df)
+
+
+@pytest.mark.parametrize("schema", [AddressDictSchema, AddressDataSchema])
+def test_make_empty_builds_typeddict_and_dataclass_structs(schema: type) -> None:
+    (dtype,) = DataFrame[schema].make_empty().dtypes
+    assert dtype == pd.ArrowDtype(ADDRESS_TYPE)
+
+
+class AddressTuple(NamedTuple):
+    city: str
+
+
+def test_named_tuple_column_reports_supported_struct_schemas() -> None:
+    class Schema(Protocol):
+        address: AddressTuple
+
+    with pytest.raises(
+        ValidationError,
+        match=r"^Column 'address': unsupported type: AddressTuple "
+        r"\(struct schemas must be a Protocol, TypedDict or dataclass\)$",
+    ):
+        DataFrame[Schema](arrow_frame("address", [ADDRESS], ADDRESS_TYPE))
