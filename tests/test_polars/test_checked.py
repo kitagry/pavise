@@ -61,10 +61,14 @@ def test_checked_error_names_the_check_class():
     )
 
 
-def test_checked_runs_every_check():
-    df = pl.DataFrame({"id": [1, 2], "start_at": [-1, 1], "end_at": [2, 3]})
+@pytest.mark.parametrize(
+    ("start_at", "end_at", "failing_check"),
+    [([1, 5], [2, 3], "StartBeforeEnd"), ([-1, 1], [2, 3], "PositiveStart")],
+)
+def test_checked_runs_every_check(start_at: list[int], end_at: list[int], failing_check: str):
+    df = pl.DataFrame({"id": [1, 2], "start_at": start_at, "end_at": end_at})
 
-    with pytest.raises(ValidationError, match="DataFrame check 'PositiveStart' failed"):
+    with pytest.raises(ValidationError, match=f"DataFrame check '{failing_check}' failed"):
         DataFrame[StrictEvent](df)
 
 

@@ -1,4 +1,4 @@
-from typing import Literal, Protocol, TypeVar, get_type_hints, runtime_checkable
+from typing import Any, Literal, Protocol, TypeVar, get_type_hints, runtime_checkable
 
 import pytest
 from typing_extensions import TypeAliasType
@@ -6,6 +6,7 @@ from typing_extensions import TypeAliasType
 from pavise.checks import (
     Check,
     Checked,
+    DataFrameCheck,
     Key,
     UniqueCheck,
     UniqueKeys,
@@ -258,6 +259,24 @@ def test_checked_rejects_check_without_call():
             pass
 
 
+def test_checked_rejects_check_that_needs_arguments():
+    class AfterThreshold(Check):
+        def __init__(self, threshold: int):
+            self.threshold = threshold
+
+        def __call__(self, df):
+            return df["start_at"] > self.threshold
+
+    with pytest.raises(TypeError) as exc_info:
+
+        class Schema(EventColumns, Checked[AfterThreshold], Protocol):
+            pass
+
+    assert str(exc_info.value).startswith(
+        "Checked: cannot create AfterThreshold without arguments in Schema: "
+    )
+
+
 class Event(EventColumns, Checked[StartBeforeEnd], Protocol): ...
 
 
@@ -284,3 +303,45 @@ def test_checked_and_unique_keys_can_be_combined():
         EventColumns, UniqueKeys[Key[Literal["start_at"]]], Checked[StartBeforeEnd], Protocol
     ):
         pass
+
+    checks = get_dataframe_checks(Schema)
+
+    assert len(checks) == 2
+    assert checks[0] == UniqueCheck(columns=("start_at",))
+    assert isinstance(checks[1], DataFrameCheck)
+    assert isinstance(checks[1].func, StartBeforeEnd)
+
+
+def test_checked_is_inherited_through_a_subscripted_generic_base():
+    class GenericEvent(EventColumns, Checked[StartBeforeEnd], Protocol[T_co]): ...
+
+    class Child(GenericEvent[int], Protocol): ...
+
+    checks = get_dataframe_checks(Child)
+
+    assert len(checks) == 1
+    assert isinstance(checks[0], DataFrameCheck)
+    assert checks[0].name == "StartBeforeEnd"
+
+
+def test_check_rejects_subclassing_a_concrete_check():
+    with pytest.raises(TypeError) as exc_info:
+
+        class StrictlyBefore(StartBeforeEnd):
+            def __call__(self, df: Any) -> Any:
+                return df["start_at"] + 1 < df["end_at"]
+
+    assert str(exc_info.value) == (
+        "Check: StrictlyBefore cannot subclass StartBeforeEnd, which already implements "
+        "__call__; type checkers would accept a schema checked with StartBeforeEnd where "
+        "StrictlyBefore is expected. Subclass Check, or an abstract Check subclass, instead"
+    )
+
+
+def test_check_accepts_subclassing_an_abstract_check():
+    class ColumnCheck(Check):
+        column = "start_at"
+
+    class PositiveColumn(ColumnCheck):
+        def __call__(self, df: Any) -> Any:
+            return df[self.column] > 0

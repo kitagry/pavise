@@ -134,6 +134,19 @@ class Check(ABC):
     @abstractmethod
     def __call__(self, df: Any) -> Any: ...
 
+    def __init_subclass__(cls, **kwargs: Any) -> None:
+        super().__init_subclass__(**kwargs)
+        # Checked is contravariant in its checks, so a subclass of a concrete check would
+        # accept schemas that only ran the parent's check.
+        for base in cls.__bases__:
+            if issubclass(base, Check) and not getattr(base, "__abstractmethods__", None):
+                raise TypeError(
+                    f"Check: {cls.__name__} cannot subclass {base.__name__}, which already "
+                    f"implements __call__; type checkers would accept a schema checked with "
+                    f"{base.__name__} where {cls.__name__} is expected. Subclass Check, or an "
+                    "abstract Check subclass, instead"
+                )
+
 
 CheckT_contra = TypeVar("CheckT_contra", bound=Check, contravariant=True)
 
@@ -190,10 +203,14 @@ class _MarkerRegistry(Generic[ItemT]):
         sources: list[tuple[str, tuple[ItemT, ...]]] = []
         # __orig_bases__ is only in the class's own namespace when a base is subscripted.
         for base in schema.__dict__.get("__orig_bases__", schema.__bases__):
-            if get_origin(base) is self._marker:
+            origin = get_origin(base)
+            if origin is self._marker:
                 sources.append((f"{schema.__name__} itself", self._parse(schema, base)))
-            elif base in self._items:
-                sources.append((base.__name__, self._items[base]))
+                continue
+            # A subscripted generic base such as Base[int] is registered as Base.
+            base_class = origin or base
+            if base_class in self._items:
+                sources.append((base_class.__name__, self._items[base_class]))
         if not sources:
             return
 
@@ -242,7 +259,14 @@ def _parse_checked(schema: type, marker: Any) -> tuple[DataFrameCheck, ...]:
                 "Checked: list Check subclasses, e.g. Checked[StartBeforeEnd], "
                 f"got {check!r} in {schema.__name__}"
             )
-        checks.append(DataFrameCheck(func=check(), name=check.__name__))
+        try:
+            func = check()
+        except TypeError as e:
+            raise TypeError(
+                f"Checked: cannot create {check.__name__} without arguments in "
+                f"{schema.__name__}: {e}"
+            ) from e
+        checks.append(DataFrameCheck(func=func, name=check.__name__))
     return tuple(checks)
 
 
