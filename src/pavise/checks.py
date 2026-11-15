@@ -87,8 +87,9 @@ class UniqueKeys(Protocol[KeyT_contra]):
     """Declare the unique keys of a schema in its type.
 
     The type parameter is a ``Key`` or a union of them; each key is checked to be unique
-    across rows, as with ``@unique``. A schema with more keys can be used where a schema
-    with fewer of them is expected, but not the other way around.
+    across rows when a DataFrame is validated. Rows whose key columns hold nulls in the same
+    places count as duplicates. A schema with more keys can be used where a schema with
+    fewer of them is expected, but not the other way around.
 
     Declare the columns in a Protocol of their own and combine it with the keys, so that
     schemas with different keys share the columns::
