@@ -37,7 +37,7 @@ If the DataFrame contains extra columns, you'll get a clear error:
 
    ValidationError: Strict mode: unexpected columns ['address', 'age', 'email']
 
-Strict mode also rejects struct fields that the nested ``Protocol`` does not define (see
+Strict mode also rejects struct fields that the struct schema does not define (see
 :doc:`nested-types`):
 
 .. code-block:: text
