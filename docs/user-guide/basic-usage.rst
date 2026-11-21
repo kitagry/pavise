@@ -80,6 +80,49 @@ Pavise uses covariant type parameters, allowing schemas with more columns to be 
    extended_df: DataFrame[ExtendedSchema] = ...
    process_minimal(extended_df)  # OK: ExtendedSchema is compatible
 
+.. _column-types-must-match-exactly:
+
+Column Types Must Match Exactly
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Extra columns are fine, but the types of the shared columns must be the same. A column is a
+mutable attribute of the ``Protocol``, and type checkers compare mutable attributes as
+invariant: something that can be assigned ``float`` cannot stand in for an ``int`` attribute,
+and the other way around. So none of these are accepted:
+
+* ``int`` where ``float`` is expected
+* ``int`` where ``int | None`` is expected
+* A struct with extra fields where a struct with fewer fields is expected, or, with pyright,
+  another ``Protocol`` with the same fields (see :doc:`nested-types`)
+* ``list[X]`` where ``list[Y]`` is expected, unless ``X`` and ``Y`` are the same type (``list``
+  is invariant too)
+
+.. code-block:: python
+
+   class IntScore(Protocol):
+       score: int
+
+   class OptionalScore(Protocol):
+       score: int | None
+
+   def process_scores(df: DataFrame[OptionalScore]) -> None:
+       pass
+
+   int_scores: DataFrame[IntScore] = ...
+   process_scores(int_scores)  # Type error: "score" is invariant because it is mutable
+
+When the schemas come from different places, either use the same schema on both sides
+(import it from the module that produces the DataFrame), or tell the type checker with
+``typing.cast`` that the columns are compatible:
+
+.. code-block:: python
+
+   from typing import cast
+
+   process_scores(cast(DataFrame[OptionalScore], int_scores))
+
+``cast`` does not validate anything; validate the DataFrame at runtime if you are not sure.
+
 Backend Selection
 -----------------
 

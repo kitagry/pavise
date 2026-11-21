@@ -94,11 +94,39 @@ marks a field that may be absent.
 
 ``Custom`` on a struct receives a ``dict`` whichever kind of schema describes it.
 
-Type checkers treat a struct column like any attribute of a ``Protocol``: as it can be
-reassigned, ``DataFrame[A]`` is accepted where ``DataFrame[B]`` is expected only when their
-struct columns have the same type. Two ``TypedDict`` classes with the same keys, value types and
-required keys count as the same type, while two ``Protocol`` classes or dataclasses must be the
-same class.
+Type checkers compare a struct column like any other column, so its type must match exactly
+(see :ref:`column-types-must-match-exactly`). ``DataFrame[A]`` is accepted where
+``DataFrame[B]`` is expected only when their struct columns have the same type: a struct with
+only some of the fields, or with extra fields, is not accepted, and neither is ``list[X]`` for
+``list[Y]`` when ``X`` and ``Y`` are different structs. Two ``TypedDict`` classes with the same
+keys, value types, required keys and ``ReadOnly`` keys count as the same type, while two
+dataclasses must be the same class, even when their fields are the same. pyright also requires
+two ``Protocol`` classes to be the same class; mypy accepts another ``Protocol`` with the same
+fields.
+
+.. code-block:: python
+
+   class AddressWithZip(Protocol):
+       city: str
+       zip: str
+
+   class CityAddress(Protocol):
+       city: str
+
+   class ZipUser(Protocol):
+       address: AddressWithZip
+
+   class CityUser(Protocol):
+       address: CityAddress
+
+   def process_cities(df: DataFrame[CityUser]) -> None:
+       pass
+
+   zip_users: DataFrame[ZipUser] = ...
+   process_cities(zip_users)  # Type error: "address" is invariant because it is mutable
+
+To pass such a DataFrame, use the same struct schema on both sides, or ``typing.cast`` it as
+described in :ref:`column-types-must-match-exactly`.
 
 pydantic models, ``NamedTuple`` and generic schemas such as ``Box[int]`` cannot be used as
 structs, and Pavise raises ``ValidationError`` for them.
