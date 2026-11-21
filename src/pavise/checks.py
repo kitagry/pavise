@@ -16,6 +16,7 @@ The actual evaluation is implemented in backend-specific modules:
 import sys
 import types
 import typing
+import warnings
 import weakref
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -220,8 +221,15 @@ def dataframe_check(func: Callable[[Any], Any], *, name: str | None = None) -> C
     return decorator
 
 
+# category=None: type checkers flag uses, while the runtime warning below names the columns.
+@typing_extensions.deprecated(
+    "unique() is deprecated; declare the key with UniqueKeys[Key[Literal[...]]]", category=None
+)
 def unique(*columns: str) -> Callable[[T], T]:
     """Require the combination of ``columns`` to be unique across rows.
+
+    Deprecated: declare the key in the schema type with ``UniqueKeys[Key[Literal[...]]]``
+    instead. ``unique()`` will be removed in the next minor release.
 
     Rows whose key columns hold nulls in the same places count as duplicates, as with the
     column-level ``Unique()`` validator. Column names are checked against the schema when
@@ -240,6 +248,13 @@ def unique(*columns: str) -> Callable[[T], T]:
     for i, column in enumerate(columns):
         if column in columns[:i]:
             raise ValueError(f"unique: column {column!r} is given more than once")
+    warnings.warn(
+        "unique() is deprecated and will be removed in the next minor release. Declare the "
+        "key in the schema type instead, e.g. "
+        f"class Schema(UniqueKeys[Key[Literal[{', '.join(map(repr, columns))}]]], Protocol)",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     check = UniqueCheck(columns=columns)
 
     def decorator(schema: T) -> T:

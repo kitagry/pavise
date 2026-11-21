@@ -113,6 +113,14 @@ A failing single-bool check only reports the check name.
 Unique Column Combinations
 --------------------------
 
+.. warning::
+
+   ``@unique`` is deprecated and will be removed in the next minor release. Declare the keys
+   in the schema type with ``UniqueKeys`` instead (see `Unique Keys in the Type`_):
+   ``@unique("user_id", "date")`` becomes
+   ``class DailyStepsSchema(UniqueKeys[Key[Literal["user_id", "date"]]], Protocol)``.
+   Using ``@unique`` emits a ``DeprecationWarning``.
+
 ``@unique(*columns)`` requires the combination of the given columns to be unique across
 rows, like a composite unique key. For a single column, the ``Unique()`` validator does
 the same.

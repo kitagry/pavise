@@ -210,3 +210,16 @@ def test_unique_keys_accepts_type_aliases():
         UniqueCheck(columns=("id",)),
         UniqueCheck(columns=("email",)),
     ]
+
+
+def test_unique_is_deprecated_in_favor_of_unique_keys():
+    with pytest.warns(DeprecationWarning) as record:
+        unique("user_id", "date")
+
+    assert len(record) == 1
+    assert str(record[0].message) == (
+        "unique() is deprecated and will be removed in the next minor release. "
+        "Declare the key in the schema type instead, e.g. "
+        "class Schema(UniqueKeys[Key[Literal['user_id', 'date']]], Protocol)"
+    )
+    assert record[0].filename == __file__
