@@ -180,31 +180,79 @@ def _typeddict_qualifier_name(hint: Any) -> str | None:
     return None
 
 
-def _struct_fields(schema: type) -> dict[str, tuple[Any, bool]]:
-    """Each field's annotation and whether a TypedDict lets the field be missing."""
-    if dataclasses.is_dataclass(schema):
-        # fields() leaves out ClassVar and InitVar. get_type_hints resolves string types in the
-        # module of the class that declares each field, but fails on a string InitVar on
-        # Python 3.10 and on names local to a function, so those are resolved like other
-        # forward references.
-        try:
-            hints = get_type_hints(schema, include_extras=True)
-        except (NameError, TypeError):
-            hints = {}
-        return {f.name: (hints.get(f.name, f.type), False) for f in dataclasses.fields(schema)}
-    hints = get_type_hints(schema, include_extras=True)
-    if not is_typeddict(schema):
-        return {name: (hint, False) for name, hint in hints.items()}
+def schema_columns(schema: type) -> dict[str, tuple[Any, bool]]:
+    """
+    Each column's annotation and whether the column may be missing.
 
-    fields = {}
-    for name, hint in hints.items():
+    ``schema`` is a Protocol, TypedDict or dataclass, used as the schema of a DataFrame or of
+    a struct. TypedDict qualifiers are removed from the annotations; NotRequiredColumn is kept.
+    """
+    if dataclasses.is_dataclass(schema):
+        return _dataclass_columns(schema)
+    if is_typeddict(schema):
+        return _typeddict_columns(schema)
+    return _protocol_columns(schema)
+
+
+def _protocol_columns(schema: type) -> dict[str, tuple[Any, bool]]:
+    hints = get_type_hints(schema, include_extras=True)
+    return {name: _column(name, hint) for name, hint in hints.items()}
+
+
+def _dataclass_columns(schema: type) -> dict[str, tuple[Any, bool]]:
+    # fields() leaves out ClassVar and InitVar. get_type_hints resolves string types in the
+    # module of the class that declares each field, but fails on a string InitVar on
+    # Python 3.10 and on names local to a function, so those are resolved like other
+    # forward references. They are resolved here rather than when parsed, because a
+    # DataFrame's columns are read as types, and NotRequiredColumn must be seen to let a
+    # column be missing.
+    try:
+        hints = get_type_hints(schema, include_extras=True)
+    except (NameError, TypeError):
+        hints = {}
+    columns = {}
+    for f in dataclasses.fields(schema):
+        hint = hints.get(f.name, f.type)
+        if isinstance(hint, str):
+            hint = _resolve_forward_reference(hint, f.name, schema)
+        columns[f.name] = _column(f.name, hint)
+    return columns
+
+
+def _typeddict_columns(schema: type) -> dict[str, tuple[Any, bool]]:
+    columns = {}
+    for name, hint in get_type_hints(schema, include_extras=True).items():
         hint, not_required = _strip_typeddict_qualifiers(hint)
+        if _is_not_required_column(hint):
+            raise ValidationError(
+                "NotRequiredColumn cannot be used in a TypedDict; use NotRequired",
+                column_name=name,
+            )
         if not_required is None:
             # __optional_keys__ misses NotRequired written as a string (from __future__ import
             # annotations, or typing.TypedDict on Python 3.10), but always reflects total=False
             not_required = name in schema.__optional_keys__
-        fields[name] = (hint, not_required)
-    return fields
+        columns[name] = (hint, not_required)
+    return columns
+
+
+def _column(name: str, hint: Any) -> tuple[Any, bool]:
+    """A column of a schema other than a TypedDict, where TypedDict qualifiers have no meaning."""
+    base_type = _extract_type_and_validators(hint)[0]
+    if (qualifier := _typeddict_qualifier_name(base_type)) is not None:
+        raise ValidationError(_misplaced_qualifier_message(qualifier), column_name=name)
+    return hint, _is_not_required_column(hint)
+
+
+def _misplaced_qualifier_message(qualifier: str) -> str:
+    message = f"{qualifier} can only be used in a TypedDict"
+    if qualifier != "ReadOnly":
+        message += "; use NotRequiredColumn for a field that may be absent"
+    return message
+
+
+def _is_not_required_column(hint: Any) -> bool:
+    return isinstance(hint, type) and issubclass(hint, NotRequiredColumn)
 
 
 def _strip_typeddict_qualifiers(hint: Any) -> tuple[Any, bool | None]:
@@ -362,17 +410,16 @@ def _parse(
                 f"recursive schema is not supported: {base_type.__name__}",
                 column_name=column_name,
             )
+        try:
+            columns = schema_columns(base_type)
+        except ValidationError as e:
+            # Reported at the struct column, like other errors in the struct's schema
+            raise ValidationError(e._base_message, column_name=column_name) from None
         fields = {}
-        is_dict = is_typeddict(base_type)
-        for name, (hint, missing_ok) in _struct_fields(base_type).items():
+        for name, (hint, missing_ok) in columns.items():
             field = _parse(
                 hint, column_name, base_type, allow_not_required=True, seen=seen | {base_type}
             )
-            if field.not_required and is_dict:
-                raise ValidationError(
-                    "NotRequiredColumn cannot be used in a TypedDict; use NotRequired",
-                    column_name=column_name,
-                )
             fields[name] = dataclasses.replace(field, not_required=field.not_required or missing_ok)
         node = StructOf(base_type, fields)
     elif (reason := _unsupported_struct_reason(base_type)) is not None:
@@ -386,10 +433,7 @@ def _parse(
             column_name=column_name,
         )
     elif (qualifier := _typeddict_qualifier_name(base_type)) is not None:
-        message = f"{qualifier} can only be used in a TypedDict"
-        if qualifier != "ReadOnly":
-            message += "; use NotRequiredColumn for a field that may be absent"
-        raise ValidationError(message, column_name=column_name)
+        raise ValidationError(_misplaced_qualifier_message(qualifier), column_name=column_name)
     else:
         node = Scalar(base_type)
         # A top-level Literal column accepts nulls when None is one of its values

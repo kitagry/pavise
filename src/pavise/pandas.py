@@ -7,7 +7,6 @@ from typing import (
     TypeVar,
     get_args,
     get_origin,
-    get_type_hints,
 )
 
 import pandas as pd
@@ -105,16 +104,16 @@ class DataFrame(pd.DataFrame, Generic[SchemaT_co]):
             _extract_type_and_validators,
             is_nested_type,
             parse_annotation,
+            schema_columns,
         )
         from pavise._pandas.nested import nested_dtype
         from pavise._pandas.validation import _extract_index_name_type_and_validators
 
-        type_hints = get_type_hints(cls._schema, include_extras=True)
         columns = {}
         index_name = None
         index_base_type = None
 
-        for col_name, col_type in type_hints.items():
+        for col_name, (col_type, _) in schema_columns(cls._schema).items():
             if col_name == INDEX_COLUMN_NAME:
                 # Extract index name from schema
                 index_base_type, index_name, _validators, _is_optional = (

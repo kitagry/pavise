@@ -8,10 +8,7 @@ from typing import (
     Literal,
     get_args,
     get_origin,
-    get_type_hints,
 )
-
-from pavise.types import NotRequiredColumn
 
 try:
     import polars as pl
@@ -22,6 +19,7 @@ from pavise._annotations import (
     _extract_type_and_validators,
     is_nested_type,
     parse_nested_column,
+    schema_columns,
 )
 from pavise._polars.dtypes import (
     TYPE_CHECKERS,
@@ -55,11 +53,10 @@ def validate_dataframe(df: pl.DataFrame, schema: type, strict: bool = False) -> 
         ValueError: If a required column is missing or type is unsupported
         TypeError: If a column has the wrong type
     """
-    expected_cols = get_type_hints(schema, include_extras=True)
+    expected_cols = schema_columns(schema)
 
-    for col_name, col_type in expected_cols.items():
-        is_not_required = isinstance(col_type, type) and issubclass(col_type, NotRequiredColumn)
-        if is_not_required and col_name not in df.columns:
+    for col_name, (col_type, missing_ok) in expected_cols.items():
+        if missing_ok and col_name not in df.columns:
             continue
         _check_column_exists(df, col_name)
         _check_column_type(df, col_name, col_type, schema, strict)
@@ -80,7 +77,7 @@ def validate_dataframe(df: pl.DataFrame, schema: type, strict: bool = False) -> 
 def _run_unique_check(df: pl.DataFrame, check: UniqueCheck) -> None:
     """Raise with sample duplicate keys and their rows if the key columns are not unique."""
     columns = list(check.columns)
-    # An absent NotRequiredColumn leaves no complete key to compare.
+    # An absent column that may be missing leaves no complete key to compare.
     if not all(c in df.columns for c in columns):
         return
 
@@ -167,11 +164,10 @@ def validate_lazyframe_schema(lf: pl.LazyFrame, schema: type, strict: bool = Fal
         strict: If True, raise error on extra columns not in schema
     """
     lf_schema = lf.collect_schema()
-    expected_cols = get_type_hints(schema, include_extras=True)
+    expected_cols = schema_columns(schema)
 
-    for col_name, col_type in expected_cols.items():
-        is_not_required = isinstance(col_type, type) and issubclass(col_type, NotRequiredColumn)
-        if is_not_required and col_name not in lf_schema.names():
+    for col_name, (col_type, missing_ok) in expected_cols.items():
+        if missing_ok and col_name not in lf_schema.names():
             continue
         _check_lazyframe_column_exists(lf_schema, col_name)
         _check_lazyframe_column_type(lf_schema, col_name, col_type, schema, strict)

@@ -25,6 +25,7 @@ from pavise._annotations import (
     is_nested_type,
     parse_annotation,
     parse_nested_column,
+    schema_columns,
 )
 from pavise.exceptions import ValidationError
 from pavise.types import NotRequiredColumn
@@ -417,3 +418,39 @@ def test_parse_rejects_unsupported_struct_schemas(annotation: object, message: s
 def test_unsupported_struct_schemas_are_nested_types(annotation: object):
     """So a column of one reports why instead of a generic unsupported type error"""
     assert is_nested_type(annotation)
+
+
+class LabeledAddress(Protocol):
+    city: str
+    label: NotRequiredColumn[str]
+
+
+@pytest.mark.parametrize(
+    "schema, expected",
+    [
+        (LabeledAddress, {"city": False, "label": True}),
+        (PartialAddressDict, {"city": False, "zip": True}),
+        (ReadOnlyDict, {"city": False, "zip": True}),
+        (AddressData, {"city": False, "label": True, "zip": False, "tags": False}),
+    ],
+)
+def test_schema_columns_tell_which_columns_may_be_missing(schema: type, expected: dict[str, bool]):
+    assert {name: missing_ok for name, (_, missing_ok) in schema_columns(schema).items()} == (
+        expected
+    )
+
+
+def test_schema_columns_remove_typeddict_qualifiers():
+    assert schema_columns(ReadOnlyDict) == {"city": (str, False), "zip": (str, True)}
+
+
+def test_schema_columns_rejects_not_required_column_in_typeddict():
+    class WithNotRequiredColumn(TypedDict):
+        city: str
+        zip: NotRequiredColumn[str]
+
+    with pytest.raises(
+        ValidationError,
+        match=r"^Column 'zip': NotRequiredColumn cannot be used in a TypedDict; use NotRequired$",
+    ):
+        schema_columns(WithNotRequiredColumn)
