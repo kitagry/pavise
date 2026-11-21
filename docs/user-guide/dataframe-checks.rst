@@ -379,6 +379,11 @@ Inheriting from a schema with checks and adding checks raises ``TypeError``.
 Use ``Checked`` for constraints that should be part of the type, and ``@dataframe_check`` for
 quick checks that only need to run at runtime.
 
+A dataclass schema can declare keys and checks in the same way, e.g.
+``@dataclass class User(UniqueKeys[Key[Literal["id"]]]): ...``. A ``TypedDict`` can only
+have ``TypedDict`` bases, so its checks are declared with ``@dataframe_check`` (see
+:ref:`typeddict-and-dataclass-schemas`).
+
 A check cannot take arguments, since only its class appears in the type. Write a separate
 ``Check`` subclass for each variant. Subclassing a ``Check`` that already implements
 ``__call__`` raises ``TypeError``, because a type checker would accept a schema that only

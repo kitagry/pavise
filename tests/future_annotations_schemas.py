@@ -1,4 +1,4 @@
-"""Struct schemas whose annotations are strings, for tests of how they are read."""
+"""Schemas whose annotations are strings, for tests of how they are read."""
 
 from __future__ import annotations
 
@@ -6,6 +6,8 @@ import dataclasses
 import typing
 
 import typing_extensions
+
+from pavise.types import NotRequiredColumn
 
 
 class AddressDict(typing.TypedDict):
@@ -29,3 +31,16 @@ class AddressData:
 @dataclasses.dataclass
 class LabeledData:
     label: typing.Literal["home", "work"]
+
+
+class UserDict(typing.TypedDict):
+    id: int
+    email: typing_extensions.NotRequired[str]
+
+
+@dataclasses.dataclass
+class UserData:
+    id: int
+    email: NotRequiredColumn[str]
+    kind: typing.ClassVar[str] = "user"
+    check: dataclasses.InitVar[bool] = False

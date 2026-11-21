@@ -166,6 +166,59 @@ Key differences:
 * ``NotRequiredColumn[T]``: Column can be missing, but if present, must have type ``T`` (no ``None`` allowed)
 * ``NotRequiredColumn[Optional[T]]``: Column can be missing, and if present, can contain ``None`` values
 
+.. _typeddict-and-dataclass-schemas:
+
+TypedDict and Dataclass Schemas
+-------------------------------
+
+A schema can also be a ``TypedDict`` or a dataclass, so that the type of a row
+(``df.to_dict("records")`` in pandas, ``df.to_dicts()`` in polars) can describe the whole
+DataFrame. They follow the same rules as :ref:`TypedDict and dataclass structs
+<typeddict-and-dataclass-structs>`:
+
+* In a ``TypedDict``, a key marked with ``NotRequired`` (or left unmarked in a ``total=False``
+  ``TypedDict``) is a column that may be missing. ``NotRequiredColumn`` cannot be used in a
+  ``TypedDict``.
+* The columns of a dataclass are its fields: ``ClassVar`` and ``InitVar`` are not columns.
+  Every field must be present, including fields with a default value. ``NotRequiredColumn``
+  marks a column that may be missing, as in a ``Protocol``.
+
+.. code-block:: python
+
+   from dataclasses import dataclass
+   from typing import ClassVar, TypedDict
+
+   import pandas as pd
+   from typing_extensions import NotRequired
+
+   from pavise.pandas import DataFrame
+
+   class UserRow(TypedDict):
+       user_id: int
+       email: NotRequired[str]   # may be missing
+
+   @dataclass
+   class Event:
+       event_id: int
+       note: str | None = None   # must be present, may be null
+       source: ClassVar[str] = "web"   # not a column
+
+   DataFrame[UserRow](pd.DataFrame({"user_id": [1]}))
+   DataFrame[Event](pd.DataFrame({"event_id": [1], "note": [None]}))
+
+A dataclass can declare unique keys and checks with ``UniqueKeys`` and ``Checked`` (see
+:doc:`dataframe-checks`). A ``TypedDict`` cannot have them as bases, so use
+``@dataframe_check`` for a ``TypedDict``, or a ``Protocol`` or dataclass when the constraints
+should be part of the type.
+
+Type checkers compare these schemas by their own rules:
+
+* A ``TypedDict`` with more keys is accepted where one with fewer keys is expected, but a
+  required key does not match a ``NotRequired`` one, and a ``TypedDict`` does not match a
+  ``Protocol``.
+* A dataclass is accepted where one of its base classes or a ``Protocol`` with the same
+  columns is expected, but not where another dataclass with the same fields is expected.
+
 Supported Types
 ---------------
 

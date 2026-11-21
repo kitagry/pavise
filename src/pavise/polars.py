@@ -1,13 +1,18 @@
 """Polars backend for type-parameterized DataFrame with Protocol-based schema validation."""
 
-from typing import Any, Generic, TypeVar, get_type_hints
+from typing import Any, Generic, TypeVar
 
 try:
     import polars as pl
 except ImportError:
     raise ImportError("Polars is not installed. Install it with: pip install pavise[polars]")
 
-from pavise._annotations import _extract_type_and_validators, is_nested_type, parse_annotation
+from pavise._annotations import (
+    _extract_type_and_validators,
+    is_nested_type,
+    parse_annotation,
+    schema_columns,
+)
 from pavise._polars.dtypes import dtype_for_type
 from pavise._polars.nested import nested_dtype
 from pavise._polars.validation import validate_dataframe, validate_lazyframe_schema
@@ -24,10 +29,9 @@ def _build_empty_columns(schema: type) -> dict[str, pl.Series]:
 
     Used by both DataFrame.make_empty() and LazyFrame.make_empty().
     """
-    type_hints = get_type_hints(schema, include_extras=True)
     columns = {}
 
-    for col_name, col_type in type_hints.items():
+    for col_name, (col_type, _) in schema_columns(schema).items():
         base_type, _, _, _ = _extract_type_and_validators(col_type)
         if is_nested_type(base_type):
             dtype = nested_dtype(parse_annotation(col_type, col_name, schema))

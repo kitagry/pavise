@@ -14,13 +14,17 @@ from typing import (
     Union,
     get_args,
     get_origin,
-    get_type_hints,
 )
 
 import numpy as np
 import pandas as pd
 
-from pavise._annotations import _extract_type_and_validators, is_nested_type, parse_nested_column
+from pavise._annotations import (
+    _extract_type_and_validators,
+    is_nested_type,
+    parse_nested_column,
+    schema_columns,
+)
 from pavise._pandas.nested import check_nested_column
 from pavise._pandas.validator_impl import (
     MAX_SAMPLE_SIZE,
@@ -30,7 +34,6 @@ from pavise._pandas.validator_impl import (
 )
 from pavise.checks import DataFrameCheck, UniqueCheck, get_dataframe_checks
 from pavise.exceptions import ValidationError
-from pavise.types import NotRequiredColumn
 
 # Special column name for index validation
 INDEX_COLUMN_NAME = "__index__"
@@ -183,14 +186,18 @@ def validate_dataframe(df: pd.DataFrame, schema: type, strict: bool = False) -> 
         ValueError: If a required column is missing or type is unsupported
         TypeError: If a column has the wrong type
     """
-    expected_cols = get_type_hints(schema, include_extras=True)
+    expected_cols = schema_columns(schema)
 
-    for col_name, col_type in expected_cols.items():
+    for col_name, (col_type, missing_ok) in expected_cols.items():
         if col_name == INDEX_COLUMN_NAME:
+            if missing_ok:
+                raise ValidationError(
+                    "the index always exists, so it cannot be marked as possibly missing",
+                    column_name=col_name,
+                )
             _check_index_type(df, col_type)
         else:
-            is_not_required = isinstance(col_type, type) and issubclass(col_type, NotRequiredColumn)
-            if is_not_required and col_name not in df.columns:
+            if missing_ok and col_name not in df.columns:
                 continue
             _check_column_exists(df, col_name)
             _check_column_type(df, col_name, col_type, schema, strict)
@@ -211,7 +218,7 @@ def validate_dataframe(df: pd.DataFrame, schema: type, strict: bool = False) -> 
 def _run_unique_check(df: pd.DataFrame, check: UniqueCheck) -> None:
     """Raise with sample duplicate keys and their rows if the key columns are not unique."""
     columns = list(check.columns)
-    # An absent NotRequiredColumn leaves no complete key to compare.
+    # An absent column that may be missing leaves no complete key to compare.
     if not all(c in df.columns for c in columns):
         return
 
