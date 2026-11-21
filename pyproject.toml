@@ -61,6 +61,8 @@ default = true
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
+# The deprecated @unique keeps its tests until it is removed; the warning itself is tested.
+filterwarnings = ["ignore:unique\\(\\) is deprecated:DeprecationWarning"]
 
 [tool.pyright]
 pythonVersion = "3.10"

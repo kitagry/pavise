@@ -195,13 +195,15 @@ def test_unique_works_when_index_shares_a_key_column_name():
     )
 
 
+# Defined outside the test, whose "error" filter is meant for pandas warnings only.
+@unique("a", "b")
+class CategoricalKeySchema(Protocol):
+    a: Any
+    b: Any
+
+
 @pytest.mark.filterwarnings("error")
 def test_unique_counts_only_observed_categories():
-    @unique("a", "b")
-    class Schema(Protocol):
-        a: Any
-        b: Any
-
     df = pd.DataFrame(
         {
             "a": pd.Categorical(["x", "x", "y"], categories=["x", "y", "z"]),
@@ -210,7 +212,7 @@ def test_unique_counts_only_observed_categories():
     )
 
     with pytest.raises(ValidationError) as exc_info:
-        DataFrame[Schema](df)
+        DataFrame[CategoricalKeySchema](df)
 
     assert str(exc_info.value) == (
         "Columns ('a', 'b') must be unique, found 1 duplicate key"

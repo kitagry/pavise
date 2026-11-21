@@ -113,6 +113,14 @@ A failing single-bool check only reports the check name.
 Unique Column Combinations
 --------------------------
 
+.. warning::
+
+   ``@unique`` is deprecated and will be removed in the next minor release. Declare the keys
+   in the schema type with ``UniqueKeys`` instead (see `Unique Keys in the Type`_):
+   ``@unique("user_id", "date")`` becomes
+   ``class DailyStepsSchema(UniqueKeys[Key[Literal["user_id", "date"]]], Protocol)``.
+   Using ``@unique`` emits a ``DeprecationWarning``.
+
 ``@unique(*columns)`` requires the combination of the given columns to be unique across
 rows, like a composite unique key. For a single column, the ``Unique()`` validator does
 the same.
@@ -172,9 +180,136 @@ index labels, or row numbers for polars). ``error.invalid_samples`` holds a
    polars ``LazyFrame``. ``@unique`` returns the class unchanged and the type parameter
    of ``DataFrame`` is covariant, so a type checker accepts a ``DataFrame`` of another
    Protocol with the same columns where ``DataFrame[DailyStepsSchema]`` is expected, and
-   the other way around. A DataFrame typed with ``DailyStepsSchema`` is unique only if
-   it went through that runtime validation. Catching this with the type checker is
-   tracked in `#85 <https://github.com/kitagry/pavise/issues/85>`_.
+   the other way around. To make the keys part of the type, declare them with
+   ``UniqueKeys`` (see `Unique Keys in the Type`_).
+
+Unique Keys in the Type
+-----------------------
+
+``UniqueKeys`` declares the unique keys of a schema in its type. Each key is wrapped in
+``Key[Literal[...]]``, and Pavise checks every key when the DataFrame is validated, in the
+same way as ``@unique``.
+
+.. example-raises: ValidationError
+
+.. code-block:: python
+
+   from typing import Literal, Protocol
+
+   import pandas as pd
+   from pavise.checks import Key, UniqueKeys
+   from pavise.pandas import DataFrame
+
+   class User(UniqueKeys[Key[Literal["id"]]], Protocol):
+       id: int
+       email: str
+
+   df = pd.DataFrame({"id": [1, 2, 1], "email": ["a@example.com", "b@example.com", "c@example.com"]})
+   DataFrame[User](df)
+
+.. example-output
+
+.. code-block:: text
+
+   ValidationError: Columns ('id',) must be unique, found 1 duplicate key
+
+   Sample duplicate keys (showing first 1 of 1):
+     {'id': 1}: rows [0, 2]
+
+A union declares several keys, and a ``Literal`` with several columns declares a composite
+key. The order of the columns in a key does not matter.
+
+.. code-block:: python
+
+   from datetime import date
+
+   # id is unique, and email is unique
+   class StrictUser(UniqueKeys[Key[Literal["id"]] | Key[Literal["email"]]], Protocol):
+       id: int
+       email: str
+
+   # The combination of user_id and date is unique
+   class DailySteps(UniqueKeys[Key[Literal["user_id", "date"]]], Protocol):
+       user_id: int
+       date: date
+       steps: int
+
+Type aliases keep long keys short:
+
+.. code-block:: python
+
+   IdKey = Key[Literal["id"]]
+   EmailKey = Key[Literal["email"]]
+
+   class StrictUser(UniqueKeys[IdKey | EmailKey], Protocol):
+       id: int
+       email: str
+
+On Python 3.12 and later, ``type IdKey = Key[Literal["id"]]`` works as well.
+
+Type Checking
+~~~~~~~~~~~~~
+
+The keys are part of the schema's type, so a type checker rejects a DataFrame whose schema
+does not declare them, even when it has the same columns. A schema with more keys is
+accepted where fewer of them are expected.
+
+.. code-block:: python
+
+   class UserRow(Protocol):
+       id: int
+       email: str
+
+   def send_welcome_mail(users: DataFrame[User]) -> None: ...
+
+   send_welcome_mail(DataFrame[StrictUser](df.drop_duplicates("id")))  # OK: also unique on id
+   # send_welcome_mail(DataFrame[UserRow](df))  # type error: id is not declared unique
+
+Since the schema is still a ``Protocol``, a module that only consumes the data can declare
+its own ``class User(UniqueKeys[Key[Literal["id"]]], Protocol)`` with the columns it needs,
+without importing the producer's schema. Whichever schema the DataFrame was validated
+against, its keys were checked.
+
+Keys must be written as ``Key[Literal[...]]``: a bare ``Literal`` such as
+``UniqueKeys[Literal["id"]]`` is a type error, and raises ``TypeError`` when the class is
+defined. A column that is not in the schema raises ``ValueError``.
+
+Same Columns, Different Keys
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Protocols are structural, so a schema with other keys does not need to inherit from
+``User`` to be accepted where ``User`` is expected. Combine a ``Protocol`` of only the columns
+with the keys of each schema, or declare the columns again:
+
+.. code-block:: python
+
+   class UserColumns(Protocol):
+       id: int
+       email: str
+
+   class User(UserColumns, UniqueKeys[Key[Literal["id"]]], Protocol): ...
+
+   # Combines the columns with other keys
+   class StrictUser(UserColumns, UniqueKeys[Key[Literal["id"]] | Key[Literal["email"]]], Protocol): ...
+
+   # Declares the columns again
+   class ContactableUser(UniqueKeys[Key[Literal["id"]] | Key[Literal["email"]]], Protocol):
+       id: int
+       email: str
+
+   def send_welcome_mail(users: DataFrame[User]) -> None: ...
+
+   send_welcome_mail(DataFrame[StrictUser](df.drop_duplicates("id")))  # OK
+   send_welcome_mail(DataFrame[ContactableUser](df.drop_duplicates("id")))  # OK
+
+Inheriting from ``User`` and adding keys, as in
+``class StrictUser(User, UniqueKeys[...], Protocol)``, raises ``TypeError``: type checkers
+see the keys of only one of the bases.
+
+A child ``Protocol`` that inherits from a schema with keys inherits its keys. As with
+``@unique``, the keys of a schema used as a struct column are not checked on the struct
+values. A ``@runtime_checkable`` schema with ``UniqueKeys`` requires ``isinstance()``
+targets to have the marker's ``__pavise_unique__`` method as well.
 
 When Checks Run
 ---------------
