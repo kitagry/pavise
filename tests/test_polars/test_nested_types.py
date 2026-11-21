@@ -294,7 +294,7 @@ def test_dtype_instance_annotation_in_lazyframe_and_make_empty() -> None:
 
 def test_dtype_instance_as_list_element() -> None:
     class Schema(Protocol):
-        values: list[pl.Int32]  # type: ignore[valid-type]
+        values: list[pl.Int32]
 
     df = pl.DataFrame({"values": [[1]]}, schema={"values": pl.List(pl.Int64)})
     with pytest.raises(ValidationError, match=r"Column 'values\[\]': expected Int32, got Int64"):
@@ -447,7 +447,7 @@ def test_validator_on_deeply_nested_elements() -> None:
 )
 def test_list_length_validators(validator: Any, data: list[Any], message: str) -> None:
     class Schema(Protocol):
-        items: Annotated[list[int], validator]  # type: ignore[valid-type]
+        items: Annotated[list[int], validator]
 
     assert _validation_message(pl.DataFrame({"items": data}), Schema) == message
 

@@ -86,7 +86,7 @@ class DataFrame(pd.DataFrame, Generic[SchemaT_co]):
             ValueError: If required column is missing
             TypeError: If column has wrong type
         """
-        pd.DataFrame.__init__(self, data, *args, **kwargs)  # type: ignore[misc]
+        pd.DataFrame.__init__(self, data, *args, **kwargs)
         if self._schema is not None:
             validate_dataframe(self, self._schema, strict=strict)
 
