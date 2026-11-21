@@ -155,7 +155,7 @@ def test_unique_keys_rejects_adding_keys_to_a_schema_that_has_keys():
         "UniqueKeys: StrictUser gets different unique keys from more than one place "
         "(User, StrictUser itself), and type checkers keep only one of them. "
         "Protocols are structural, so StrictUser can be used where User is expected "
-        "without inheriting from it: combine a Protocol of only the columns with the keys, "
+        "without inheriting from it: combine a Protocol of only the columns with the unique keys, "
         "e.g. class StrictUser(Columns, UniqueKeys[...], Protocol), "
         "or declare the columns in StrictUser itself"
     )
@@ -292,9 +292,11 @@ def test_checked_rejects_adding_checks_to_a_schema_that_has_checks():
 
     assert str(exc_info.value) == (
         "Checked: StrictEvent gets different checks from more than one place "
-        "(Event, StrictEvent itself), and type checkers only keep the first. "
-        "Declare the columns in a Protocol without checks and combine it with the checks "
-        "in one place, e.g. class StrictEvent(Columns, Checked[...], Protocol)"
+        "(Event, StrictEvent itself), and type checkers keep only one of them. "
+        "Protocols are structural, so StrictEvent can be used where Event is expected "
+        "without inheriting from it: combine a Protocol of only the columns with the checks, "
+        "e.g. class StrictEvent(Columns, Checked[...], Protocol), "
+        "or declare the columns in StrictEvent itself"
     )
 
 

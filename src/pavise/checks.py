@@ -201,6 +201,7 @@ class _MarkerRegistry(Generic[ItemT]):
 
     def register(self, schema: type) -> None:
         sources: list[tuple[str, tuple[ItemT, ...]]] = []
+        parents: list[str] = []
         # __orig_bases__ is only in the class's own namespace when a base is subscripted.
         for base in schema.__dict__.get("__orig_bases__", schema.__bases__):
             origin = get_origin(base)
@@ -211,6 +212,7 @@ class _MarkerRegistry(Generic[ItemT]):
             base_class = origin or base
             if base_class in self._items:
                 sources.append((base_class.__name__, self._items[base_class]))
+                parents.append(base_class.__name__)
         if not sources:
             return
 
@@ -219,9 +221,11 @@ class _MarkerRegistry(Generic[ItemT]):
             raise TypeError(
                 f"{name}: {schema.__name__} gets different {self._what} from more than one "
                 f"place ({', '.join(source for source, _ in sources)}), and type checkers "
-                f"only keep the first. Declare the columns in a Protocol without "
-                f"{self._what} and combine it with the {self._what} in one place, e.g. "
-                f"class {schema.__name__}(Columns, {name}[...], Protocol)"
+                f"keep only one of them. Protocols are structural, so {schema.__name__} can "
+                f"be used where {parents[0]} is expected without inheriting from it: combine "
+                f"a Protocol of only the columns with the {self._what}, e.g. "
+                f"class {schema.__name__}(Columns, {name}[...], Protocol), or declare the "
+                f"columns in {schema.__name__} itself"
             )
         self._items[schema] = sources[0][1]
 

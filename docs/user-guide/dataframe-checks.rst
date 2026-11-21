@@ -371,9 +371,13 @@ Unique keys are checked before the checks.
        end_at: datetime
 
 As with keys, a type checker rejects a DataFrame whose schema does not declare the expected
-checks, and accepts a schema with more checks where fewer are expected. Schemas that share
-their columns but differ in checks combine a ``Protocol`` of the columns with their checks,
-and adding checks to a schema that already has them raises ``TypeError``.
+checks, and accepts a schema with more checks where fewer are expected. To give a schema
+other checks, do not inherit from a schema with checks: combine a ``Protocol`` of only the
+columns with the checks, or declare the columns again (see `Same Columns, Different Keys`_).
+Inheriting from a schema with checks and adding checks raises ``TypeError``.
+
+Use ``Checked`` for constraints that should be part of the type, and ``@dataframe_check`` for
+quick checks that only need to run at runtime.
 
 A check cannot take arguments, since only its class appears in the type. Write a separate
 ``Check`` subclass for each variant. Subclassing a ``Check`` that already implements
