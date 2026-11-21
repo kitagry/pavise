@@ -15,6 +15,7 @@ The actual evaluation is implemented in backend-specific modules:
 
 import sys
 import types
+import typing
 import weakref
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -29,6 +30,8 @@ from typing import (
     get_args,
     get_origin,
 )
+
+import typing_extensions
 
 T = TypeVar("T", bound=type)
 
@@ -158,7 +161,7 @@ def _parse_unique_keys(schema: type, marker: Any) -> tuple[tuple[str, ...], ...]
                 "UniqueKeys: wrap each key in Key[...], e.g. UniqueKeys[Key[Literal['id']]], "
                 f"got {key!r} in {schema.__name__}"
             )
-        columns = get_args(key)[0]
+        columns = _resolve_type_alias(get_args(key)[0])
         if get_origin(columns) is not Literal:
             raise TypeError(
                 "Key: list the key columns as a Literal, e.g. "
@@ -175,9 +178,23 @@ def _parse_unique_keys(schema: type, marker: Any) -> tuple[tuple[str, ...], ...]
 
 
 def _union_members(tp: Any) -> tuple[Any, ...]:
+    tp = _resolve_type_alias(tp)
     if get_origin(tp) in (Union, types.UnionType):
-        return get_args(tp)
+        return tuple(_resolve_type_alias(member) for member in get_args(tp))
     return (tp,)
+
+
+# Older typing_extensions define their own TypeAliasType even where typing has one
+_TYPE_ALIAS_TYPES = tuple(
+    m.TypeAliasType for m in (typing, typing_extensions) if hasattr(m, "TypeAliasType")
+)
+
+
+def _resolve_type_alias(tp: Any) -> Any:
+    """Follow ``type X = ...`` aliases, which type checkers see through but get_origin does not."""
+    while isinstance(tp, _TYPE_ALIAS_TYPES):
+        tp = tp.__value__
+    return tp
 
 
 def dataframe_check(func: Callable[[Any], Any], *, name: str | None = None) -> Callable[[T], T]:

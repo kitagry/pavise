@@ -7,6 +7,8 @@ the error there, the ignore becomes unnecessary and pyright fails.
 
 from typing import Literal, Protocol
 
+from typing_extensions import TypeAliasType
+
 from pavise.checks import Key, UniqueKeys
 from pavise.pandas import DataFrame
 
@@ -79,3 +81,21 @@ class BareLiteralInUnion(UniqueKeys[Key[Literal["id"]] | Literal["email"]], Prot
 
 class NotColumnNames(UniqueKeys[Key[int]], Protocol):  # pyright: ignore[reportInvalidTypeArguments]
     id: int
+
+
+# Keys can be named with type aliases.
+IdKey = Key[Literal["id"]]
+EmailKey = TypeAliasType("EmailKey", Key[Literal["email"]])
+
+
+class AliasedStrictUser(UniqueKeys[IdKey | EmailKey], Protocol):
+    id: int
+    email: str
+
+
+def aliased_strict_users() -> DataFrame[AliasedStrictUser]: ...
+
+
+needs_user(aliased_strict_users())
+needs_email_user(aliased_strict_users())
+needs_strict_user(aliased_strict_users())

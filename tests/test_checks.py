@@ -1,6 +1,7 @@
 from typing import Literal, Protocol, TypeVar, get_type_hints, runtime_checkable
 
 import pytest
+from typing_extensions import TypeAliasType
 
 from pavise.checks import (
     Key,
@@ -192,3 +193,18 @@ def test_unique_keys_are_inherited_through_a_subscripted_generic_base():
     class Child(GenericUser[int], Protocol): ...
 
     assert get_dataframe_checks(Child) == [UniqueCheck(columns=("id",))]
+
+
+IdKey = Key[Literal["id"]]
+EmailColumns = TypeAliasType("EmailColumns", Literal["email"])
+EmailKey = TypeAliasType("EmailKey", Key[EmailColumns])
+UserKeys = TypeAliasType("UserKeys", IdKey | EmailKey)
+
+
+def test_unique_keys_accepts_type_aliases():
+    class Schema(UserColumns, UniqueKeys[UserKeys], Protocol): ...
+
+    assert get_dataframe_checks(Schema) == [
+        UniqueCheck(columns=("id",)),
+        UniqueCheck(columns=("email",)),
+    ]
