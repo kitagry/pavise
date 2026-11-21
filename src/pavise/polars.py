@@ -80,7 +80,7 @@ class DataFrame(pl.DataFrame, Generic[SchemaT_co]):
             ValueError: If required column is missing
             TypeError: If column has wrong type
         """
-        pl.DataFrame.__init__(self, data, *args, **kwargs)  # type: ignore[misc]
+        pl.DataFrame.__init__(self, data, *args, **kwargs)
         if self._schema is not None:
             validate_dataframe(self, self._schema, strict=strict)
 
@@ -142,7 +142,7 @@ class LazyFrame(pl.LazyFrame, Generic[SchemaT_co]):
         """
         df = pl.LazyFrame.collect(self)
         if self._schema is not None:
-            return DataFrame[self._schema](df)  # type: ignore[valid-type]
+            return DataFrame[self._schema](df)
         return DataFrame(df)
 
     @classmethod

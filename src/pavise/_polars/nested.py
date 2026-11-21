@@ -142,7 +142,7 @@ def _check_values(
 
     node = field.node
     if isinstance(values.dtype, pl.Array):
-        values = values.cast(pl.List(values.dtype.inner))  # type: ignore[arg-type]
+        values = values.cast(pl.List(values.dtype.inner))
 
     if isinstance(node, ListOf):
         lengths = values.list.len()

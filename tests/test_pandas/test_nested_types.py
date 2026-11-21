@@ -379,7 +379,7 @@ def test_struct_field_validator_inside_list() -> None:
 )
 def test_list_length_validators(validator: Any, data: list[Any], message: str) -> None:
     class Schema(Protocol):
-        items: Annotated[list[int], validator]  # type: ignore[valid-type]
+        items: Annotated[list[int], validator]
 
     df = arrow_frame("items", data, pa.list_(pa.int64()))
     assert _validation_message(df, Schema) == message

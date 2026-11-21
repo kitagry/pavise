@@ -65,6 +65,7 @@ pythonpath = ["src"]
 [tool.pyright]
 pythonVersion = "3.10"
 reportUnknownParameterType = "error"
+reportUnnecessaryTypeIgnoreComment = "error"
 
 [tool.ruff]
 line-length = 100
