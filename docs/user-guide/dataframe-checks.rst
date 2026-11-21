@@ -311,6 +311,8 @@ A child ``Protocol`` that inherits from a schema with keys inherits its keys. As
 values. A ``@runtime_checkable`` schema with ``UniqueKeys`` requires ``isinstance()``
 targets to have the marker's ``__pavise_unique__`` method as well.
 
+.. _checks-in-the-type:
+
 Checks in the Type
 ------------------
 
