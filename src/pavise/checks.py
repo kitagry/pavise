@@ -128,6 +128,7 @@ _UNIQUE_KEYS: "weakref.WeakKeyDictionary[type, tuple[tuple[str, ...], ...]]" = (
 
 def _register_unique_keys(schema: type) -> None:
     sources: list[tuple[str, tuple[tuple[str, ...], ...]]] = []
+    parents: list[str] = []
     # __orig_bases__ is only in the class's own namespace when one of its bases is subscripted.
     for base in schema.__dict__.get("__orig_bases__", schema.__bases__):
         origin = get_origin(base)
@@ -138,6 +139,7 @@ def _register_unique_keys(schema: type) -> None:
         base_class = origin or base
         if base_class in _UNIQUE_KEYS:
             sources.append((base_class.__name__, _UNIQUE_KEYS[base_class]))
+            parents.append(base_class.__name__)
     if not sources:
         return
 
@@ -145,9 +147,11 @@ def _register_unique_keys(schema: type) -> None:
         names = ", ".join(name for name, _ in sources)
         raise TypeError(
             f"UniqueKeys: {schema.__name__} gets different unique keys from more than one "
-            f"place ({names}), and type checkers only keep the first. Declare the columns "
-            "in a Protocol without keys and combine it with the keys in one place, e.g. "
-            f"class {schema.__name__}(Columns, UniqueKeys[...], Protocol)"
+            f"place ({names}), and type checkers keep only one of them. Protocols are "
+            f"structural, so {schema.__name__} can be used where {parents[0]} is expected "
+            "without inheriting from it: combine a Protocol of only the columns with the "
+            f"keys, e.g. class {schema.__name__}(Columns, UniqueKeys[...], Protocol), or "
+            f"declare the columns in {schema.__name__} itself"
         )
     _UNIQUE_KEYS[schema] = sources[0][1]
 

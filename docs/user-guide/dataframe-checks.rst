@@ -269,8 +269,9 @@ defined. A column that is not in the schema raises ``ValueError``.
 Same Columns, Different Keys
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-To define schemas that share their columns but differ in keys, declare the columns in a
-``Protocol`` without keys and combine it with the keys of each schema:
+Protocols are structural, so a schema with other keys does not need to inherit from
+``User`` to be accepted where ``User`` is expected. Combine a ``Protocol`` of only the columns
+with the keys of each schema, or declare the columns again:
 
 .. code-block:: python
 
@@ -280,12 +281,22 @@ To define schemas that share their columns but differ in keys, declare the colum
 
    class User(UserColumns, UniqueKeys[Key[Literal["id"]]], Protocol): ...
 
+   # Combines the columns with other keys
    class StrictUser(UserColumns, UniqueKeys[Key[Literal["id"]] | Key[Literal["email"]]], Protocol): ...
 
-Do not add keys to a schema that already has them, as in
-``class StrictUser(User, UniqueKeys[...], Protocol)``. Type checkers either report the bases
-as incompatible or keep only the keys of ``User``, so Pavise raises ``TypeError`` for such a
-class.
+   # Declares the columns again
+   class ContactableUser(UniqueKeys[Key[Literal["id"]] | Key[Literal["email"]]], Protocol):
+       id: int
+       email: str
+
+   def send_welcome_mail(users: DataFrame[User]) -> None: ...
+
+   send_welcome_mail(DataFrame[StrictUser](df.drop_duplicates("id")))  # OK
+   send_welcome_mail(DataFrame[ContactableUser](df.drop_duplicates("id")))  # OK
+
+Inheriting from ``User`` and adding keys, as in
+``class StrictUser(User, UniqueKeys[...], Protocol)``, raises ``TypeError``: type checkers
+see the keys of only one of the bases.
 
 A child ``Protocol`` that inherits from a schema with keys inherits its keys. As with
 ``@unique``, the keys of a schema used as a struct column are not checked on the struct

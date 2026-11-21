@@ -150,9 +150,11 @@ def test_unique_keys_rejects_adding_keys_to_a_schema_that_has_keys():
 
     assert str(exc_info.value) == (
         "UniqueKeys: StrictUser gets different unique keys from more than one place "
-        "(User, StrictUser itself), and type checkers only keep the first. "
-        "Declare the columns in a Protocol without keys and combine it with the keys "
-        "in one place, e.g. class StrictUser(Columns, UniqueKeys[...], Protocol)"
+        "(User, StrictUser itself), and type checkers keep only one of them. "
+        "Protocols are structural, so StrictUser can be used where User is expected "
+        "without inheriting from it: combine a Protocol of only the columns with the keys, "
+        "e.g. class StrictUser(Columns, UniqueKeys[...], Protocol), "
+        "or declare the columns in StrictUser itself"
     )
 
 

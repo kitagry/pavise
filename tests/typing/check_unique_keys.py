@@ -69,6 +69,22 @@ needs_email_id_user(strict_users())  # pyright: ignore[reportArgumentType]
 needs_user(id_email_users())  # pyright: ignore[reportArgumentType]
 
 
+# To change the keys, a schema does not inherit from a keyed schema: it combines a Protocol of
+# only the columns with its keys, or declares the columns itself. Either way it is accepted
+# where the keyed schema is expected.
+class RestatedStrictUser(UniqueKeys[Key[Literal["id"]] | Key[Literal["email"]]], Protocol):
+    id: int
+    email: str
+
+
+def restated_strict_users() -> DataFrame[RestatedStrictUser]: ...
+
+
+needs_user(strict_users())
+needs_user(restated_strict_users())
+needs_email_user(restated_strict_users())
+
+
 # Keys must be wrapped in Key[Literal[...]].
 class BareLiteral(UniqueKeys[Literal["id"]], Protocol):  # pyright: ignore[reportInvalidTypeArguments]
     id: int
