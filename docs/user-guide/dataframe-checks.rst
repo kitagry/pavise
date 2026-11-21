@@ -311,6 +311,80 @@ A child ``Protocol`` that inherits from a schema with keys inherits its keys. As
 values. A ``@runtime_checkable`` schema with ``UniqueKeys`` requires ``isinstance()``
 targets to have the marker's ``__pavise_unique__`` method as well.
 
+Checks in the Type
+------------------
+
+``Checked`` declares DataFrame-level checks in the schema's type, as ``UniqueKeys`` does for
+unique keys. A check is a subclass of ``Check`` whose ``__call__`` returns what a
+``@dataframe_check`` function returns, and its class name is the check's name in errors.
+
+.. example-raises: ValidationError
+
+.. code-block:: python
+
+   from datetime import datetime
+   from typing import Literal, Protocol
+
+   import pandas as pd
+   from pavise.checks import Check, Checked, Key, UniqueKeys
+   from pavise.pandas import DataFrame
+
+   class StartBeforeEnd(Check):
+       def __call__(self, df):
+           return df["start_at"] < df["end_at"]
+
+   class Event(Checked[StartBeforeEnd], Protocol):
+       start_at: datetime
+       end_at: datetime
+
+   df = pd.DataFrame({
+       "start_at": pd.to_datetime(["2024-01-01", "2024-01-05"]),
+       "end_at": pd.to_datetime(["2024-01-02", "2024-01-03"]),
+   })
+   DataFrame[Event](df)
+
+.. example-output
+
+.. code-block:: text
+
+   ValidationError: DataFrame check 'StartBeforeEnd' failed
+
+   Sample invalid values (showing first 1 of 1):
+     Row 1: {'start_at': Timestamp('2024-01-05 00:00:00'), 'end_at': Timestamp('2024-01-03 00:00:00')}
+
+A union declares several checks, and ``Checked`` can be combined with ``UniqueKeys``.
+Unique keys are checked before the checks.
+
+.. code-block:: python
+
+   class PositiveDuration(Check):
+       def __call__(self, df):
+           return (df["end_at"] - df["start_at"]).dt.total_seconds() > 0
+
+   class StrictEvent(
+       UniqueKeys[Key[Literal["id"]]],
+       Checked[StartBeforeEnd | PositiveDuration],
+       Protocol,
+   ):
+       id: int
+       start_at: datetime
+       end_at: datetime
+
+As with keys, a type checker rejects a DataFrame whose schema does not declare the expected
+checks, and accepts a schema with more checks where fewer are expected. To give a schema
+other checks, do not inherit from a schema with checks: combine a ``Protocol`` of only the
+columns with the checks, or declare the columns again (see `Same Columns, Different Keys`_).
+Inheriting from a schema with checks and adding checks raises ``TypeError``.
+
+Use ``Checked`` for constraints that should be part of the type, and ``@dataframe_check`` for
+quick checks that only need to run at runtime.
+
+A check cannot take arguments, since only its class appears in the type. Write a separate
+``Check`` subclass for each variant. Subclassing a ``Check`` that already implements
+``__call__`` raises ``TypeError``, because a type checker would accept a schema that only
+ran the parent's check where the subclass is expected. A subclass of ``Check`` that leaves
+``__call__`` abstract can be shared as a base.
+
 When Checks Run
 ---------------
 

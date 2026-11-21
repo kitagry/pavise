@@ -1,9 +1,12 @@
-from typing import Literal, Protocol, TypeVar, get_type_hints, runtime_checkable
+from typing import Any, Literal, Protocol, TypeVar, get_type_hints, runtime_checkable
 
 import pytest
 from typing_extensions import TypeAliasType
 
 from pavise.checks import (
+    Check,
+    Checked,
+    DataFrameCheck,
     Key,
     UniqueCheck,
     UniqueKeys,
@@ -152,7 +155,7 @@ def test_unique_keys_rejects_adding_keys_to_a_schema_that_has_keys():
         "UniqueKeys: StrictUser gets different unique keys from more than one place "
         "(User, StrictUser itself), and type checkers keep only one of them. "
         "Protocols are structural, so StrictUser can be used where User is expected "
-        "without inheriting from it: combine a Protocol of only the columns with the keys, "
+        "without inheriting from it: combine a Protocol of only the columns with the unique keys, "
         "e.g. class StrictUser(Columns, UniqueKeys[...], Protocol), "
         "or declare the columns in StrictUser itself"
     )
@@ -223,3 +226,124 @@ def test_unique_is_deprecated_in_favor_of_unique_keys():
         "class Schema(UniqueKeys[Key[Literal['user_id', 'date']]], Protocol)"
     )
     assert record[0].filename == __file__
+
+
+class StartBeforeEnd(Check):
+    def __call__(self, df):
+        return df["start_at"] < df["end_at"]
+
+
+class EventColumns(Protocol):
+    start_at: int
+    end_at: int
+
+
+def test_checked_rejects_types_that_are_not_checks():
+    with pytest.raises(TypeError) as exc_info:
+
+        class Schema(EventColumns, Checked[int], Protocol):  # pyright: ignore[reportInvalidTypeArguments]
+            pass
+
+    assert str(exc_info.value) == (
+        "Checked: list Check subclasses, e.g. Checked[StartBeforeEnd], got <class 'int'> in Schema"
+    )
+
+
+def test_checked_rejects_check_without_call():
+    class Incomplete(Check):
+        pass
+
+    with pytest.raises(TypeError, match="Incomplete"):
+
+        class Schema(EventColumns, Checked[Incomplete], Protocol):
+            pass
+
+
+def test_checked_rejects_check_that_needs_arguments():
+    class AfterThreshold(Check):
+        def __init__(self, threshold: int):
+            self.threshold = threshold
+
+        def __call__(self, df):
+            return df["start_at"] > self.threshold
+
+    with pytest.raises(TypeError) as exc_info:
+
+        class Schema(EventColumns, Checked[AfterThreshold], Protocol):
+            pass
+
+    assert str(exc_info.value).startswith(
+        "Checked: cannot create AfterThreshold without arguments in Schema: "
+    )
+
+
+class Event(EventColumns, Checked[StartBeforeEnd], Protocol): ...
+
+
+def test_checked_rejects_adding_checks_to_a_schema_that_has_checks():
+    class PositiveStart(Check):
+        def __call__(self, df):
+            return df["start_at"] > 0
+
+    with pytest.raises(TypeError) as exc_info:
+
+        class StrictEvent(Event, Checked[StartBeforeEnd | PositiveStart], Protocol):
+            pass
+
+    assert str(exc_info.value) == (
+        "Checked: StrictEvent gets different checks from more than one place "
+        "(Event, StrictEvent itself), and type checkers keep only one of them. "
+        "Protocols are structural, so StrictEvent can be used where Event is expected "
+        "without inheriting from it: combine a Protocol of only the columns with the checks, "
+        "e.g. class StrictEvent(Columns, Checked[...], Protocol), "
+        "or declare the columns in StrictEvent itself"
+    )
+
+
+def test_checked_and_unique_keys_can_be_combined():
+    class Schema(
+        EventColumns, UniqueKeys[Key[Literal["start_at"]]], Checked[StartBeforeEnd], Protocol
+    ):
+        pass
+
+    checks = get_dataframe_checks(Schema)
+
+    assert len(checks) == 2
+    assert checks[0] == UniqueCheck(columns=("start_at",))
+    assert isinstance(checks[1], DataFrameCheck)
+    assert isinstance(checks[1].func, StartBeforeEnd)
+
+
+def test_checked_is_inherited_through_a_subscripted_generic_base():
+    class GenericEvent(EventColumns, Checked[StartBeforeEnd], Protocol[T_co]): ...
+
+    class Child(GenericEvent[int], Protocol): ...
+
+    checks = get_dataframe_checks(Child)
+
+    assert len(checks) == 1
+    assert isinstance(checks[0], DataFrameCheck)
+    assert checks[0].name == "StartBeforeEnd"
+
+
+def test_check_rejects_subclassing_a_concrete_check():
+    with pytest.raises(TypeError) as exc_info:
+
+        class StrictlyBefore(StartBeforeEnd):
+            def __call__(self, df: Any) -> Any:
+                return df["start_at"] + 1 < df["end_at"]
+
+    assert str(exc_info.value) == (
+        "Check: StrictlyBefore cannot subclass StartBeforeEnd, which already implements "
+        "__call__; type checkers would accept a schema checked with StartBeforeEnd where "
+        "StrictlyBefore is expected. Subclass Check, or an abstract Check subclass, instead"
+    )
+
+
+def test_check_accepts_subclassing_an_abstract_check():
+    class ColumnCheck(Check):
+        column = "start_at"
+
+    class PositiveColumn(ColumnCheck):
+        def __call__(self, df: Any) -> Any:
+            return df[self.column] > 0
