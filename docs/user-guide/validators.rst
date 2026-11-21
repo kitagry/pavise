@@ -4,6 +4,16 @@ Validators
 Pavise provides validators to enforce data quality constraints beyond type checking.
 Validators are attached to column types using ``typing.Annotated``.
 
+.. note::
+
+   Like ``@dataframe_check`` and ``@unique``, column validators are not part of the type.
+   They are only checked at runtime, by ``DataFrame[Schema](df)`` or by ``collect()`` on a
+   polars ``LazyFrame``. Type checkers ignore the metadata of ``Annotated``, so a type
+   checker accepts a ``DataFrame`` of a schema with ``age: Annotated[int, Range(0, 150)]``
+   where a ``DataFrame`` of a schema with ``age: int`` (or with another validator) is
+   expected, and the other way around. To make a constraint part of the type, write it as a
+   ``Check`` and declare it with ``Checked`` (see :ref:`checks-in-the-type`).
+
 Available Validators
 --------------------
 
