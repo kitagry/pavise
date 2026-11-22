@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+import weakref
+from collections.abc import Callable, Hashable, Mapping
 from typing import (
     Any,
     Literal,
@@ -26,14 +27,37 @@ from pavise._polars.dtypes import (
 from pavise._polars.nested import check_nested_dtype, check_nested_values
 from pavise._polars.validator_impl import (
     BOUND_VALIDATORS,
+    FALLBACK_ERRORS,
     MAX_SAMPLE_SIZE,
     apply_validator,
     get_invalid_samples,
+    is_in_expr,
     is_in_values,
+    passing_expr,
     require_orderable_dtype,
 )
 from pavise.checks import DataFrameCheck, UniqueCheck, get_dataframe_checks
 from pavise.exceptions import ValidationError
+
+# Below this many rows the in-memory engine finishes before the streaming one starts up
+_STREAMING_MIN_ROWS = 50_000
+# Only since polars 2.0 does a lazy query run on the streaming engine, which spreads one
+# expression over all cores; before, it runs on the same engine as DataFrame.select.
+_LAZY_IS_STREAMING = int(pl.__version__.split(".")[0]) >= 2
+
+# Identifies a check that can be batched: (column, validator index), (column, "literal") or
+# (None, index into the DataFrame checks)
+_CheckKey = tuple[Hashable, Hashable]
+_BatchPlan = list[tuple[_CheckKey, pl.Expr]]
+
+# Building the expressions costs more than evaluating them on a small DataFrame, so they are
+# kept per schema and per dtypes of its columns.
+_BATCH_PLANS: weakref.WeakKeyDictionary[type, dict[tuple[Any, ...], _BatchPlan]] = (
+    weakref.WeakKeyDictionary()
+)
+# Dtypes such as Datetime time zones, Decimal precisions and Enum categories can vary from
+# frame to frame without end, so a long-lived schema must not keep a plan for each forever.
+_MAX_PLANS_PER_SCHEMA = 32
 
 
 def validate_dataframe(df: pl.DataFrame, schema: type, strict: bool = False) -> None:
@@ -50,12 +74,14 @@ def validate_dataframe(df: pl.DataFrame, schema: type, strict: bool = False) -> 
         TypeError: If a column has the wrong type
     """
     expected_cols = dataframe_columns(schema)
+    dataframe_checks = get_dataframe_checks(schema)
+    passed = _batch_passed(df, _batch_plan(df, schema, expected_cols, dataframe_checks))
 
     for col_name, column in expected_cols.items():
         if column.missing_ok and col_name not in df.columns:
             continue
         _check_column_exists(df, col_name)
-        _check_column_type(df, col_name, column, schema, strict)
+        _check_column_type(df, col_name, column, schema, strict, passed)
 
     schema_cols = [c for c in expected_cols if c in df.columns]
     if strict:
@@ -63,11 +89,111 @@ def validate_dataframe(df: pl.DataFrame, schema: type, strict: bool = False) -> 
         if extra_cols:
             raise ValidationError(f"Strict mode: unexpected columns {sorted(extra_cols)}")
 
-    for check in get_dataframe_checks(schema):
+    for i, check in enumerate(dataframe_checks):
         if isinstance(check, UniqueCheck):
-            _run_unique_check(df, check)
+            if (None, i) not in passed:
+                _run_unique_check(df, check)
         else:
             _run_dataframe_check(df, check, schema_cols)
+
+
+def _batch_passed(df: pl.DataFrame, plan: _BatchPlan) -> frozenset[_CheckKey]:
+    """
+    Evaluate the batched checks in one query and return the ones that pass.
+
+    The rest run on their own as before, which reports exactly the error they always did, so
+    any failure here only means falling back to that.
+    """
+    if not plan:
+        return frozenset()
+    exprs = [expr for _, expr in plan]
+    try:
+        if _LAZY_IS_STREAMING and df.height >= _STREAMING_MIN_ROWS:
+            result = df.lazy().select(exprs).collect()
+        else:
+            result = df.select(exprs)
+    except FALLBACK_ERRORS:  # the check that fails raises it again on its own
+        return frozenset()
+    if result.width != len(plan):
+        # Results are matched to checks by position, so a missing one would shift the rest
+        return frozenset()
+    return frozenset(key for (key, _), ok in zip(plan, result.row(0)) if ok is True)
+
+
+def _batch_plan(
+    df: pl.DataFrame,
+    schema: type,
+    expected_cols: Mapping[str, SchemaColumn],
+    dataframe_checks: list[Any],
+) -> _BatchPlan:
+    frame_schema = df.schema
+    # Only the schema's columns, so frames that differ in other columns share one plan
+    dtypes = tuple((c, frame_schema[c]) for c in expected_cols if c in frame_schema)
+    try:
+        plans = _BATCH_PLANS.setdefault(schema, {})
+    except TypeError:
+        plans = {}
+    # A schema whose forward references resolve later keeps the plan from before, which
+    # leaves those columns out of the batch; they are then still checked on their own.
+    plan = plans.get(dtypes)
+    if plan is None:
+        plan = _build_batch_plan(dict(dtypes), expected_cols, dataframe_checks)
+        if len(plans) >= _MAX_PLANS_PER_SCHEMA:
+            del plans[next(iter(plans))]
+        plans[dtypes] = plan
+    return plan
+
+
+def _build_batch_plan(
+    dtypes: dict[str, pl.DataType],
+    expected_cols: Mapping[str, SchemaColumn],
+    dataframe_checks: list[Any],
+) -> _BatchPlan:
+    plan: _BatchPlan = []
+    for col_name, column in expected_cols.items():
+        dtype = dtypes.get(col_name)
+        if dtype is None or column.nested or dtype == pl.Object or _is_pattern(col_name):
+            continue
+        base_type = column.base_type
+        col = pl.col(col_name)
+        if is_dtype_annotation(base_type):
+            if dtype != base_type:
+                continue
+        elif get_origin(base_type) is Literal:
+            is_in = is_in_expr(col, dtype, get_args(base_type))
+            if is_in is not None:
+                plan.append(((col_name, "literal"), ~(~is_in).fill_null(False).any()))
+        elif base_type not in TYPE_CHECKERS or not TYPE_CHECKERS[base_type].dtype(dtype):
+            # Union columns, and columns that fail the type check or are cast first
+            continue
+        for i, validator in enumerate(column.validators):
+            expr = passing_expr(col, dtype, validator)
+            if expr is not None:
+                plan.append(((col_name, i), expr))
+
+    for i, check in enumerate(dataframe_checks):
+        if isinstance(check, UniqueCheck) and all(
+            c in dtypes and dtypes[c] != pl.Object and not _is_pattern(c) for c in check.columns
+        ):
+            plan.append(((None, i), ~pl.struct(list(check.columns)).is_duplicated().any()))
+
+    plan = [(key, expr.alias(f"__pavise_{n}")) for n, (key, expr) in enumerate(plan)]
+    empty = pl.DataFrame(schema=dtypes)
+    # An expression polars rejects for the dtypes alone would fail every batch it is in
+    return [(key, expr) for key, expr in plan if _evaluates(empty, expr)]
+
+
+def _evaluates(df: pl.DataFrame, expr: pl.Expr) -> bool:
+    try:
+        df.select(expr)
+    except FALLBACK_ERRORS:
+        return False
+    return True
+
+
+def _is_pattern(name: str) -> bool:
+    """Whether pl.col reads the name as a regex or wildcard instead of the column itself."""
+    return name == "*" or (name.startswith("^") and name.endswith("$"))
 
 
 def _run_unique_check(df: pl.DataFrame, check: UniqueCheck) -> None:
@@ -299,9 +425,14 @@ def _check_column_exists(df: pl.DataFrame, col_name: str) -> None:
 
 
 def _check_column_type(
-    df: pl.DataFrame, col_name: str, column: SchemaColumn, schema: type, strict: bool
+    df: pl.DataFrame,
+    col_name: str,
+    column: SchemaColumn,
+    schema: type,
+    strict: bool,
+    passed: frozenset[_CheckKey],
 ) -> None:
-    """Check if a column has the expected type and apply validators."""
+    """Check if a column has the expected type and apply validators, except those in passed."""
     base_type, validators, is_optional = column.base_type, column.validators, column.nullable
 
     if column.nested:
@@ -317,27 +448,26 @@ def _check_column_type(
                 f"expected {dtype_name(base_type)}, got {col_dtype}",
                 column_name=col_name,
             )
-        for validator in validators:
-            apply_validator(df[col_name], validator, col_name)
+        _apply_validators(df[col_name], validators, col_name, passed)
         return
 
     if get_origin(base_type) is Literal:
         allowed_values = get_args(base_type)
         if not is_optional and None not in allowed_values and df[col_name].null_count() > 0:
             raise ValidationError("is non-optional but contains null values", column_name=col_name)
-        # is_in propagates nulls, so nulls never count as invalid values here
-        invalid_mask = ~is_in_values(df[col_name], allowed_values)
-        if invalid_mask.any():
-            samples, total_invalid = get_invalid_samples(df[col_name], invalid_mask)
-            raise ValidationError.new_with_samples(
-                col_name,
-                f"expected one of {allowed_values}, got invalid values",
-                samples,
-                total_invalid,
-                repr,
-            )
-        for validator in validators:
-            apply_validator(df[col_name], validator, col_name)
+        if (col_name, "literal") not in passed:
+            # is_in propagates nulls, so nulls never count as invalid values here
+            invalid_mask = ~is_in_values(df[col_name], allowed_values)
+            if invalid_mask.any():
+                samples, total_invalid = get_invalid_samples(df[col_name], invalid_mask)
+                raise ValidationError.new_with_samples(
+                    col_name,
+                    f"expected one of {allowed_values}, got invalid values",
+                    samples,
+                    total_invalid,
+                    repr,
+                )
+        _apply_validators(df[col_name], validators, col_name, passed)
         return
 
     # Handle Union types (represented as tuple)
@@ -365,8 +495,7 @@ def _check_column_type(
                 repr,
             )
 
-        for validator in validators:
-            apply_validator(df[col_name], validator, col_name)
+        _apply_validators(df[col_name], validators, col_name, passed)
         return
 
     if base_type not in TYPE_CHECKERS:
@@ -385,5 +514,12 @@ def _check_column_type(
     if not is_optional and col_series.null_count() > 0:
         raise ValidationError("is non-optional but contains null values", column_name=col_name)
 
-    for validator in validators:
-        apply_validator(col_series, validator, col_name)
+    _apply_validators(col_series, validators, col_name, passed)
+
+
+def _apply_validators(
+    series: pl.Series, validators: tuple[Any, ...], col_name: str, passed: frozenset[_CheckKey]
+) -> None:
+    for i, validator in enumerate(validators):
+        if (col_name, i) not in passed:
+            apply_validator(series, validator, col_name)
