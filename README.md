@@ -353,8 +353,8 @@ Where the difference comes from:
 - **pandas.** pandera copies the input frame by default (`inplace=False`) and checks the type
   of an object string column with a Python function per element. pavise does not copy, and
   uses `pandas.api.types.infer_dtype`.
-- **polars.** pavise evaluates all value checks of a frame in one `select`. From 50,000 rows
-  on, it runs that as a lazy query, which polars 2.0 spreads over all cores.
+- **polars.** pavise evaluates all value checks of a frame in one `select`. On polars 2.0,
+  from 50,000 rows on, it runs that as a lazy query, which spreads over all cores.
 
 Where they are about even:
 
@@ -380,8 +380,8 @@ uv run --with 'pandera[polars]' python benchmarks/bench_overhead.py \
     --rows 10 --rows 1000000
 ```
 
-See [`benchmarks/`](benchmarks/README.md) for every scenario and the pandera schema each one
-is compared with.
+See [`benchmarks/`](https://github.com/kitagry/pavise/tree/main/benchmarks) for every
+scenario and the pandera schema each one is compared with.
 
 ## 🛠️ Development
 
