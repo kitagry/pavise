@@ -7,15 +7,11 @@ try:
 except ImportError:
     raise ImportError("Polars is not installed. Install it with: pip install pavise[polars]")
 
-from pavise._annotations import (
-    _extract_type_and_validators,
-    is_nested_type,
-    parse_annotation,
-    schema_columns,
-)
+from pavise._annotations import dataframe_columns, parse_annotation
 from pavise._polars.dtypes import dtype_for_type
 from pavise._polars.nested import nested_dtype
 from pavise._polars.validation import validate_dataframe, validate_lazyframe_schema
+from pavise._subscript import once_per_schema
 from pavise.types import NotRequiredColumn
 
 __all__ = ["DataFrame", "LazyFrame", "NotRequiredColumn"]
@@ -31,12 +27,11 @@ def _build_empty_columns(schema: type) -> dict[str, pl.Series]:
     """
     columns = {}
 
-    for col_name, (col_type, _) in schema_columns(schema).items():
-        base_type, _, _, _ = _extract_type_and_validators(col_type)
-        if is_nested_type(base_type):
-            dtype = nested_dtype(parse_annotation(col_type, col_name, schema))
+    for col_name, column in dataframe_columns(schema).items():
+        if column.nested:
+            dtype = nested_dtype(parse_annotation(column.annotation, col_name, schema))
         else:
-            dtype = dtype_for_type(base_type)
+            dtype = dtype_for_type(column.base_type)
         columns[col_name] = pl.Series([], dtype=dtype)
 
     return columns
@@ -62,8 +57,9 @@ class DataFrame(pl.DataFrame, Generic[SchemaT_co]):
 
     _schema: type | None = None
 
+    @once_per_schema
     def __class_getitem__(cls, schema: type):
-        """Create a new DataFrame class with schema validation."""
+        """Create the DataFrame class that validates against the schema."""
 
         class TypedDataFrame(DataFrame):
             _schema = schema
@@ -112,8 +108,9 @@ class LazyFrame(pl.LazyFrame, Generic[SchemaT_co]):
 
     _schema: type | None = None
 
+    @once_per_schema
     def __class_getitem__(cls, schema: type):
-        """Create a new LazyFrame class with schema validation."""
+        """Create the LazyFrame class that validates against the schema."""
 
         class TypedLazyFrame(LazyFrame):
             _schema = schema

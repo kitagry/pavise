@@ -15,12 +15,7 @@ try:
 except ImportError:
     raise ImportError("Polars is not installed. Install it with: pip install pavise[polars]")
 
-from pavise._annotations import (
-    _extract_type_and_validators,
-    is_nested_type,
-    parse_nested_column,
-    schema_columns,
-)
+from pavise._annotations import SchemaColumn, dataframe_columns, nested_column_field
 from pavise._polars.dtypes import (
     TYPE_CHECKERS,
     TYPE_TO_DTYPE,
@@ -53,13 +48,13 @@ def validate_dataframe(df: pl.DataFrame, schema: type, strict: bool = False) -> 
         ValueError: If a required column is missing or type is unsupported
         TypeError: If a column has the wrong type
     """
-    expected_cols = schema_columns(schema)
+    expected_cols = dataframe_columns(schema)
 
-    for col_name, (col_type, missing_ok) in expected_cols.items():
-        if missing_ok and col_name not in df.columns:
+    for col_name, column in expected_cols.items():
+        if column.missing_ok and col_name not in df.columns:
             continue
         _check_column_exists(df, col_name)
-        _check_column_type(df, col_name, col_type, schema, strict)
+        _check_column_type(df, col_name, column, schema, strict)
 
     schema_cols = [c for c in expected_cols if c in df.columns]
     if strict:
@@ -164,13 +159,13 @@ def validate_lazyframe_schema(lf: pl.LazyFrame, schema: type, strict: bool = Fal
         strict: If True, raise error on extra columns not in schema
     """
     lf_schema = lf.collect_schema()
-    expected_cols = schema_columns(schema)
+    expected_cols = dataframe_columns(schema)
 
-    for col_name, (col_type, missing_ok) in expected_cols.items():
-        if missing_ok and col_name not in lf_schema.names():
+    for col_name, column in expected_cols.items():
+        if column.missing_ok and col_name not in lf_schema.names():
             continue
         _check_lazyframe_column_exists(lf_schema, col_name)
-        _check_lazyframe_column_type(lf_schema, col_name, col_type, schema, strict)
+        _check_lazyframe_column_type(lf_schema, col_name, column, schema, strict)
 
     if strict:
         schema_cols = set(expected_cols.keys())
@@ -187,17 +182,15 @@ def _check_lazyframe_column_exists(lf_schema: pl.Schema, col_name: str) -> None:
 
 
 def _check_lazyframe_column_type(
-    lf_schema: pl.Schema, col_name: str, expected_type: type, schema: type, strict: bool
+    lf_schema: pl.Schema, col_name: str, column: SchemaColumn, schema: type, strict: bool
 ) -> None:
     """Check if a column has the expected type (schema-level only, no value validation)."""
-    base_type, validators, _is_optional, _is_not_required = _extract_type_and_validators(
-        expected_type
-    )
+    base_type, validators = column.base_type, column.validators
 
     col_dtype = lf_schema[col_name]
 
-    if is_nested_type(base_type):
-        field = parse_nested_column(expected_type, col_name, schema)
+    if column.nested:
+        field = nested_column_field(schema, col_name, column)
         check_nested_dtype(field, col_dtype, col_name, strict)
         return
 
@@ -305,15 +298,13 @@ def _check_column_exists(df: pl.DataFrame, col_name: str) -> None:
 
 
 def _check_column_type(
-    df: pl.DataFrame, col_name: str, expected_type: type, schema: type, strict: bool
+    df: pl.DataFrame, col_name: str, column: SchemaColumn, schema: type, strict: bool
 ) -> None:
     """Check if a column has the expected type and apply validators."""
-    base_type, validators, is_optional, _is_not_required = _extract_type_and_validators(
-        expected_type
-    )
+    base_type, validators, is_optional = column.base_type, column.validators, column.nullable
 
-    if is_nested_type(base_type):
-        field = parse_nested_column(expected_type, col_name, schema)
+    if column.nested:
+        field = nested_column_field(schema, col_name, column)
         check_nested_dtype(field, df[col_name].dtype, col_name, strict)
         check_nested_values(field, df[col_name], col_name)
         return

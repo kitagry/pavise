@@ -12,6 +12,7 @@ from typing import (
 import pandas as pd
 
 from pavise._pandas.validation import INDEX_COLUMN_NAME, validate_dataframe
+from pavise._subscript import once_per_schema
 from pavise.types import NotRequiredColumn
 
 __all__ = ["DataFrame", "NotRequiredColumn"]
@@ -59,8 +60,9 @@ class DataFrame(pd.DataFrame, Generic[SchemaT_co]):
 
     _schema: type | None = None
 
+    @once_per_schema
     def __class_getitem__(cls, schema: type):
-        """Create a new DataFrame class with schema validation."""
+        """Create the DataFrame class that validates against the schema."""
 
         class TypedDataFrame(DataFrame):
             _schema = schema
@@ -100,12 +102,7 @@ class DataFrame(pd.DataFrame, Generic[SchemaT_co]):
         if cls._schema is None:
             return cls({})
 
-        from pavise._annotations import (
-            _extract_type_and_validators,
-            is_nested_type,
-            parse_annotation,
-            schema_columns,
-        )
+        from pavise._annotations import dataframe_columns, parse_annotation
         from pavise._pandas.nested import nested_dtype
         from pavise._pandas.validation import _extract_index_name_type_and_validators
 
@@ -113,19 +110,17 @@ class DataFrame(pd.DataFrame, Generic[SchemaT_co]):
         index_name = None
         index_base_type = None
 
-        for col_name, (col_type, _) in schema_columns(cls._schema).items():
+        for col_name, column in dataframe_columns(cls._schema).items():
             if col_name == INDEX_COLUMN_NAME:
                 # Extract index name from schema
                 index_base_type, index_name, _validators, _is_optional = (
-                    _extract_index_name_type_and_validators(col_type)
+                    _extract_index_name_type_and_validators(column.annotation)
                 )
                 continue
 
-            base_type, _validators, is_optional, _is_not_required = _extract_type_and_validators(
-                col_type
-            )
-            if is_nested_type(base_type):
-                nested = nested_dtype(parse_annotation(col_type, col_name, cls._schema))
+            base_type = column.base_type
+            if column.nested:
+                nested = nested_dtype(parse_annotation(column.annotation, col_name, cls._schema))
                 columns[col_name] = pd.Series([], dtype=nested)
                 continue
 

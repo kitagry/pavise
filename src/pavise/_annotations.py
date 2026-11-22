@@ -11,7 +11,8 @@ import dataclasses
 import sys
 import types
 import typing
-from collections.abc import Callable
+import weakref
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import (
     Annotated,
@@ -285,6 +286,78 @@ def parse_nested_column(annotation: Any, column_name: str, owner: type) -> Field
     """Parse a List or Struct column, rejecting validators that have no meaning where written."""
     field = parse_annotation(annotation, column_name, owner)
     _check_validator_targets(field, column_name, column_name)
+    return field
+
+
+@dataclass(frozen=True)
+class SchemaColumn:
+    """A column of a DataFrame schema, with its annotation unwrapped."""
+
+    annotation: Any
+    missing_ok: bool
+    base_type: Any
+    validators: tuple[Any, ...]
+    nullable: bool
+    nested: bool
+
+
+# Reading a schema's annotations costs more than checking a small DataFrame, so it is done
+# once per schema. Only results are kept, never errors: a forward reference that cannot be
+# resolved yet may be defined later.
+_DATAFRAME_COLUMNS: weakref.WeakKeyDictionary[type, Mapping[str, SchemaColumn]] = (
+    weakref.WeakKeyDictionary()
+)
+_NESTED_FIELDS: weakref.WeakKeyDictionary[type, dict[str, Field]] = weakref.WeakKeyDictionary()
+
+
+def dataframe_columns(schema: type) -> Mapping[str, SchemaColumn]:
+    """The columns of a DataFrame schema, read once per schema."""
+    try:
+        columns = _DATAFRAME_COLUMNS.get(schema)
+    except TypeError:
+        # No class, such as a string: reading it reports what is wrong with it
+        return _read_dataframe_columns(schema)
+    if columns is None:
+        columns = _read_dataframe_columns(schema)
+        # A dataclass whose type hints do not resolve yet keeps ForwardRefs, which would
+        # stay wrong after the name is defined
+        if not any(_is_unresolved(c.base_type) for c in columns.values()):
+            _DATAFRAME_COLUMNS[schema] = columns
+    return columns
+
+
+def _is_unresolved(base_type: Any) -> bool:
+    members = base_type if isinstance(base_type, tuple) else (base_type,)
+    return any(isinstance(m, (str, ForwardRef)) for m in members)
+
+
+def _read_dataframe_columns(schema: type) -> Mapping[str, SchemaColumn]:
+    columns = {}
+    for name, (annotation, missing_ok) in schema_columns(schema).items():
+        base_type, validators, nullable, _ = _extract_type_and_validators(annotation)
+        columns[name] = SchemaColumn(
+            annotation,
+            missing_ok,
+            base_type,
+            tuple(validators),
+            nullable,
+            is_nested_type(base_type),
+        )
+    return types.MappingProxyType(columns)
+
+
+def nested_column_field(schema: type, column_name: str, column: SchemaColumn) -> Field:
+    """
+    The parsed annotation of a List or Struct column of ``schema``, parsed once.
+
+    Parsed only when the column is checked, so that a column that may be missing and is
+    absent never reports errors in its annotation.
+    """
+    fields = _NESTED_FIELDS.setdefault(schema, {})
+    field = fields.get(column_name)
+    if field is None:
+        field = parse_nested_column(column.annotation, column_name, schema)
+        fields[column_name] = field
     return field
 
 
