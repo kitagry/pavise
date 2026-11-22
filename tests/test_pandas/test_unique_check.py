@@ -240,6 +240,12 @@ def test_unique_compares_unhashable_values_by_content():
     )
 
 
+def test_unique_passes_when_unhashable_values_differ_by_content():
+    df = pd.DataFrame({"a": [1, 1, 1], "b": [[1, 2], [3], [2, 1]]})
+
+    DataFrame[AnyKeySchema](df)
+
+
 def test_unique_compares_arrow_list_values_by_content():
     pa = pytest.importorskip("pyarrow")
     df = pd.DataFrame(

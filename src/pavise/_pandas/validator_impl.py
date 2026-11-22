@@ -91,6 +91,9 @@ def find_violation(
     elif isinstance(validator, (Ge, Gt, Le, Lt)):
         violation = _find_comparison(series, validator, col_name)
     elif isinstance(validator, Unique):
+        # keep=False marks every repeated row for the error, but costs more than finding one
+        if not series.duplicated().any():
+            return None
         violation = Violation(series.duplicated(keep=False), "contains duplicate values")
     elif isinstance(validator, In):
         violation = Violation(
