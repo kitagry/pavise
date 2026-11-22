@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any, Literal, NoReturn, get_args, get_origin
 
 import polars as pl
@@ -93,8 +94,28 @@ def _check_scalar_dtype(field: Field, dtype: pl.DataType, column_name: str, path
 def check_nested_values(field: Field, series: pl.Series, column_name: str) -> None:
     """Reject nulls that are not Optional, values outside a Literal and values that fail
     validators, at every level."""
-    rows = pl.Series(range(series.len()), dtype=pl.UInt32)
+
+    def rows() -> pl.Series:
+        return pl.Series(range(series.len()), dtype=pl.UInt32)
+
     _check_values(field, series, rows, series, column_name, column_name)
+
+
+def _filtered_rows(rows: Callable[[], pl.Series], keep: pl.Series) -> Callable[[], pl.Series]:
+    return lambda: rows().filter(keep)
+
+
+def _element_rows(rows: Callable[[], pl.Series], lengths: pl.Series) -> Callable[[], pl.Series]:
+    def element_rows() -> pl.Series:
+        non_empty = lengths > 0
+        # Series.repeat_by only exists since polars 1.27, so go through the expression
+        return (
+            pl.DataFrame({"row": rows().filter(non_empty), "length": lengths.filter(non_empty)})
+            .select(pl.col("row").repeat_by("length").explode())
+            .to_series()
+        )
+
+    return element_rows
 
 
 def _raise_for_rows(
@@ -114,7 +135,7 @@ def _raise_for_rows(
 def _check_values(
     field: Field,
     values: pl.Series,
-    rows: pl.Series,
+    rows: Callable[[], pl.Series],
     column: pl.Series,
     column_name: str,
     path: str,
@@ -122,20 +143,21 @@ def _check_values(
     """
     Check nulls of ``values``, the values found at ``path``.
 
-    ``rows`` holds the column row each value comes from, so errors can show the whole row.
+    ``rows`` builds the column row each value comes from, so errors can show the whole row.
+    Only errors call it, because building it costs more than checking the values.
     """
     is_null = values.is_null()
     if is_null.any():
         if not field.nullable:
             _raise_for_rows(
                 "is non-optional but contains null values",
-                rows.filter(is_null),
+                rows().filter(is_null),
                 column,
                 column_name,
                 path,
             )
         values = values.filter(~is_null)
-        rows = rows.filter(~is_null)
+        rows = _filtered_rows(rows, ~is_null)
     # map_elements cannot infer a dtype from no values, so validators would fail on them
     if values.dtype == pl.Null or values.is_empty():
         return
@@ -146,15 +168,11 @@ def _check_values(
 
     if isinstance(node, ListOf):
         lengths = values.list.len()
-        # Exploding an empty list yields a null, so leave empty lists out
-        non_empty = lengths > 0
-        elements = values.filter(non_empty).explode()
-        # Series.repeat_by only exists since polars 1.27, so go through the expression
-        element_rows = (
-            pl.DataFrame({"row": rows.filter(non_empty), "length": lengths.filter(non_empty)})
-            .select(pl.col("row").repeat_by("length").explode())
-            .to_series()
-        )
+        # Exploding an empty list yields a null, so leave empty lists out. Filtering costs
+        # several times the explode, so skip it when there is none.
+        non_empty = values.filter(lengths > 0) if lengths.min() == 0 else values
+        elements = non_empty.explode()
+        element_rows = _element_rows(rows, lengths)
         _check_values(node.element, elements, element_rows, column, column_name, f"{path}[]")
     elif isinstance(node, StructOf):
         present = {f.name for f in values.dtype.fields}  # type: ignore[attr-defined]
@@ -169,7 +187,7 @@ def _check_values(
         if invalid.any():
             _raise_for_rows(
                 f"expected one of {allowed}, got invalid values",
-                rows.filter(invalid),
+                rows().filter(invalid),
                 column,
                 column_name,
                 path,
@@ -180,7 +198,7 @@ def _check_values(
     for validator in field.validators:
         violation = _find_nested_violation(node, values, validator, column_name, path)
         if violation is not None:
-            _raise_violation(violation, values, rows, column, column_name, path)
+            _raise_violation(violation, values, rows(), column, column_name, path)
 
 
 def _find_nested_violation(
