@@ -21,6 +21,7 @@ Describe your columns once with <code>typing.Protocol</code>, and get static typ
   <a href="#-installation">Installation</a> ·
   <a href="#-usage">Usage</a> ·
   <a href="#-supported-types">Supported Types</a> ·
+  <a href="#-performance">Performance</a> ·
   <a href="https://pavise.readthedocs.io/">Documentation</a>
 </p>
 
@@ -329,6 +330,58 @@ DataFrame[TicketSchema](df)  # OK: 'note' is not required
 | Generic | `Optional[T]`, `Union[T1, T2, ...]` (`Union[int, str, None]` for nullable unions), `Literal[...]`, `NotRequiredColumn[T]` |
 | pandas | `pd.CategoricalDtype`, `pd.Int64Dtype` and other extension dtypes |
 | polars | `pl.Categorical`, `pl.Int64` and other polars data types |
+
+## ⚡ Performance
+
+pavise checks only what the schema asks for and builds no error report until a check fails.
+Compared with [pandera](https://pandera.readthedocs.io/) running the same checks
+(`lazy=False`, no coercion):
+
+| | pavise | pandera |
+|---|---:|---:|
+| pandas, 7 columns, 10 rows | 0.34 ms | 1.82 ms |
+| pandas, 7 columns, 1,000,000 rows | 50 ms | 240 ms |
+| polars, 7 columns, 10 rows | 0.14 ms | 2.81 ms |
+| polars, 7 columns, 1,000,000 rows | 1.3 ms | 4.6 ms |
+| polars, `str` with length and regex checks, 1,000,000 rows | 4.6 ms | 5.9 ms |
+
+Where the difference comes from:
+
+- **Fixed cost per call.** pandera runs every check through a general pipeline: it copies
+  each column's schema component, resolves its config for every check, and prepares failure
+  cases even for checks that pass. On polars it runs two or three queries per check.
+- **pandas.** pandera copies the input frame by default (`inplace=False`) and checks the type
+  of an object string column with a Python function per element. pavise does not copy, and
+  uses `pandas.api.types.infer_dtype`.
+- **polars.** pavise evaluates all value checks of a frame in one `select`. From 50,000 rows
+  on, it runs that as a lazy query, which polars 2.0 spreads over all cores.
+
+Where they are about even:
+
+- Composite unique keys (`UniqueKeys`): finding the duplicates takes most of the time in both.
+- polars 1.x on large string columns: lazy queries run on one core there, so regex and `In`
+  checks take about the same time in both.
+
+Notes:
+
+- pandera can collect every error (`lazy=True`), return failure cases as a DataFrame, drop
+  invalid rows and coerce types. pavise stops at the first error. Part of pandera's cost
+  pays for those features.
+- pandera validates only the schema of a polars `LazyFrame` by default. pavise checks values
+  when the `LazyFrame` is collected.
+
+Measured on an AMD Ryzen 9 7940HS (8 cores, 16 threads), Linux, Python 3.14.6, pandas 2.3.3,
+polars 2.0.0 and pandera 0.36.0. To reproduce:
+
+```sh
+uv run --with 'pandera[polars]' python benchmarks/bench_overhead.py \
+    --backend pandas --backend polars \
+    --scenario "wide 7 cols" --scenario "MinLen+MaxLen+Regex" \
+    --rows 10 --rows 1000000
+```
+
+See [`benchmarks/`](benchmarks/README.md) for every scenario and the pandera schema each one
+is compared with.
 
 ## 🛠️ Development
 
