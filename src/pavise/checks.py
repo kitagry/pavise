@@ -20,7 +20,7 @@ import typing
 import warnings
 import weakref
 from abc import ABC, abstractmethod
-from collections.abc import Callable
+from collections.abc import Callable, Collection
 from dataclasses import dataclass
 from typing import (
     TYPE_CHECKING,
@@ -333,7 +333,9 @@ def unique(*columns: str) -> Callable[[T], T]:
 
     Rows whose key columns hold nulls in the same places count as duplicates, as with the
     column-level ``Unique()`` validator. Column names are checked against the schema when
-    the decorator is applied.
+    the decorator is applied. In a dataclass, a ``ClassVar``, an ``InitVar`` or an
+    annotation of a base class that is not a dataclass is not a column, and a key naming
+    one raises when a DataFrame is validated.
 
     Example::
 
@@ -388,6 +390,38 @@ def _annotated_names(schema: type) -> list[str]:
         else:
             names.update(dict.fromkeys(cls.__dict__.get("__annotations__", {})))
     return list(names)
+
+
+# Schemas whose keys were found among their columns. Failures are not kept, so they keep
+# raising.
+_KEYS_CHECKED: "weakref.WeakSet[type]" = weakref.WeakSet()
+
+
+def check_key_columns(schema: type, columns: Collection[str]) -> None:
+    """Raise if a unique key of ``schema`` names something that is not one of its ``columns``.
+
+    The names are first checked against the annotations, before a dataclass decorator has
+    run and so before its fields are known. A ``ClassVar``, an ``InitVar`` or an annotation
+    of a base class that is not a dataclass passes that check but is no dataclass field:
+    without this, the key would be skipped like an absent column that may be missing.
+    """
+    if schema in _KEYS_CHECKED:
+        return
+    keys = [("UniqueKeys", key) for key in _UNIQUE_KEYS.get(schema)]
+    keys.extend(
+        ("unique", check.columns)
+        for cls in reversed(schema.__mro__)
+        for check in _CHECKS.get(cls, [])
+        if isinstance(check, UniqueCheck)
+    )
+    for name, key in keys:
+        for column in key:
+            if column not in columns:
+                raise ValueError(
+                    f"{name}: column {column!r} is not in schema {schema.__name__}; "
+                    "ClassVar, InitVar and annotations of non-dataclass bases are not columns"
+                )
+    _KEYS_CHECKED.add(schema)
 
 
 def get_dataframe_checks(schema: type) -> list[DataFrameCheck | UniqueCheck]:

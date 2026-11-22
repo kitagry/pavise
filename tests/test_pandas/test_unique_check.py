@@ -1,6 +1,7 @@
 """Tests for multi-column uniqueness checks (@unique) on the pandas backend."""
 
-from typing import Any, Protocol
+from dataclasses import InitVar, dataclass
+from typing import Any, ClassVar, Protocol
 
 import pytest
 
@@ -262,3 +263,36 @@ def test_unique_compares_arrow_list_values_by_content():
         "Columns ('a', 'b') must be unique, found 1 duplicate key"
     )
     assert [row for row, _ in exc_info.value.invalid_samples] == [0, 2]
+
+
+@unique("kind")
+@dataclass
+class ClassVarKeyed:
+    id: int
+    kind: ClassVar[str] = "user"
+
+
+@unique("id", "check")
+@dataclass
+class InitVarKeyed:
+    id: int
+    check: InitVar[bool] = False
+
+
+@pytest.mark.parametrize(
+    ("schema", "column"),
+    [
+        pytest.param(ClassVarKeyed, "kind", id="ClassVar"),
+        pytest.param(InitVarKeyed, "check", id="InitVar"),
+    ],
+)
+def test_unique_rejects_a_key_that_is_not_a_dataclass_column(schema: type, column: str):
+    df = pd.DataFrame({"id": [1, 2]})
+
+    with pytest.raises(ValueError) as exc_info:
+        DataFrame[schema](df)
+
+    assert str(exc_info.value) == (
+        f"unique: column {column!r} is not in schema {schema.__name__}; "
+        "ClassVar, InitVar and annotations of non-dataclass bases are not columns"
+    )
