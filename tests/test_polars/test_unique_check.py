@@ -1,6 +1,7 @@
 """Tests for multi-column uniqueness checks (@unique) on the polars backend."""
 
-from typing import Protocol
+from dataclasses import InitVar, dataclass
+from typing import ClassVar, Protocol
 
 import pytest
 
@@ -183,3 +184,41 @@ def test_unique_accepts_key_columns_with_any_name():
         "\n\nSample duplicate keys (showing first 1 of 1):"
         "\n  {'row': 1, 'count': 2}: rows [0, 1]"
     )
+
+
+@unique("kind")
+@dataclass
+class ClassVarKeyed:
+    id: int
+    kind: ClassVar[str] = "user"
+
+
+@unique("id", "check")
+@dataclass
+class InitVarKeyed:
+    id: int
+    check: InitVar[bool] = False
+
+
+@pytest.mark.parametrize(
+    ("schema", "column"),
+    [
+        pytest.param(ClassVarKeyed, "kind", id="ClassVar"),
+        pytest.param(InitVarKeyed, "check", id="InitVar"),
+    ],
+)
+def test_unique_rejects_a_key_that_is_not_a_dataclass_column(schema: type, column: str):
+    df = pl.DataFrame({"id": [1, 2]})
+
+    with pytest.raises(ValueError) as exc_info:
+        DataFrame[schema](df)
+
+    assert str(exc_info.value) == (
+        f"unique: column {column!r} is not in schema {schema.__name__}; "
+        "ClassVar, InitVar and annotations of non-dataclass bases are not columns"
+    )
+
+
+def test_lazyframe_rejects_a_unique_key_that_is_not_a_dataclass_column():
+    with pytest.raises(ValueError, match="unique: column 'kind' is not in schema"):
+        LazyFrame[ClassVarKeyed](pl.LazyFrame({"id": [1, 2]}))

@@ -38,7 +38,7 @@ from pavise._polars.validator_impl import (
     passing_expr,
     require_orderable_dtype,
 )
-from pavise.checks import DataFrameCheck, UniqueCheck, get_dataframe_checks
+from pavise.checks import DataFrameCheck, UniqueCheck, check_key_columns, get_dataframe_checks
 from pavise.exceptions import ValidationError
 
 # Below this many rows the in-memory engine finishes before the streaming one starts up
@@ -76,6 +76,7 @@ def validate_dataframe(df: pl.DataFrame, schema: type, strict: bool = False) -> 
         TypeError: If a column has the wrong type
     """
     expected_cols = dataframe_columns(schema)
+    check_key_columns(schema, expected_cols)
     dataframe_checks = get_dataframe_checks(schema)
     passed = _batch_passed(df, _batch_plan(df, schema, expected_cols, dataframe_checks))
 
@@ -296,6 +297,7 @@ def validate_lazyframe_schema(lf: pl.LazyFrame, schema: type, strict: bool = Fal
     """
     lf_schema = lf.collect_schema()
     expected_cols = dataframe_columns(schema)
+    check_key_columns(schema, expected_cols)
 
     for col_name, column in expected_cols.items():
         if column.missing_ok and col_name not in lf_schema.names():

@@ -27,7 +27,7 @@ from pavise._pandas.validator_impl import (
     get_invalid_samples,
     is_arrow_type,
 )
-from pavise.checks import DataFrameCheck, UniqueCheck, get_dataframe_checks
+from pavise.checks import DataFrameCheck, UniqueCheck, check_key_columns, get_dataframe_checks
 from pavise.exceptions import ValidationError
 
 # Special column name for index validation
@@ -182,6 +182,7 @@ def validate_dataframe(df: pd.DataFrame, schema: type, strict: bool = False) -> 
         TypeError: If a column has the wrong type
     """
     expected_cols = dataframe_columns(schema)
+    check_key_columns(schema, expected_cols)
 
     for col_name, column in expected_cols.items():
         if col_name == INDEX_COLUMN_NAME:

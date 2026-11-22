@@ -7,6 +7,7 @@ import typing
 
 import typing_extensions
 
+from pavise.checks import Key, UniqueKeys
 from pavise.types import NotRequiredColumn
 
 
@@ -44,3 +45,9 @@ class UserData:
     email: NotRequiredColumn[str]
     kind: typing.ClassVar[str] = "user"
     check: dataclasses.InitVar[bool] = False
+
+
+@dataclasses.dataclass
+class KindKeyedUserData(UniqueKeys[Key[typing.Literal["kind"]]]):
+    id: int
+    kind: typing.ClassVar[str] = "user"

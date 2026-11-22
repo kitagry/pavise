@@ -1,17 +1,20 @@
 """Tests for unique keys declared with the UniqueKeys marker on the pandas backend."""
 
-from typing import Any, Literal, Protocol
+from dataclasses import InitVar, dataclass
+from typing import Any, ClassVar, Literal, Protocol
 
 import pytest
 
 pytest.importorskip("pandas")
 
+import future_annotations_schemas
 import numpy as np
 import pandas as pd
 
 from pavise.checks import Key, UniqueKeys
 from pavise.exceptions import ValidationError
 from pavise.pandas import DataFrame
+from pavise.types import NotRequiredColumn
 
 
 class ActivityColumns(Protocol):
@@ -186,3 +189,57 @@ def test_make_empty_passes_unique_keys():
     result = DataFrame[StrictActivity].make_empty()
 
     assert len(result) == 0
+
+
+@dataclass
+class ClassVarKeyed(UniqueKeys[Key[Literal["kind"]]]):
+    id: int
+    kind: ClassVar[str] = "user"
+
+
+@dataclass
+class InitVarKeyed(UniqueKeys[Key[Literal["id", "check"]]]):
+    id: int
+    check: InitVar[bool] = False
+
+
+class AnnotatedBase:
+    id: int
+
+
+@dataclass
+class NonDataclassBaseKeyed(AnnotatedBase, UniqueKeys[Key[Literal["id"]]]):
+    name: str
+
+
+@pytest.mark.parametrize(
+    ("schema", "column"),
+    [
+        pytest.param(ClassVarKeyed, "kind", id="ClassVar"),
+        pytest.param(InitVarKeyed, "check", id="InitVar"),
+        pytest.param(future_annotations_schemas.KindKeyedUserData, "kind", id="string-ClassVar"),
+        pytest.param(NonDataclassBaseKeyed, "id", id="non-dataclass-base"),
+    ],
+)
+def test_unique_keys_rejects_a_key_that_is_not_a_dataclass_column(schema: type, column: str):
+    df = pd.DataFrame({"id": [1, 2]})
+
+    with pytest.raises(ValueError) as exc_info:
+        DataFrame[schema](df)
+
+    assert str(exc_info.value) == (
+        f"UniqueKeys: column {column!r} is not in schema {schema.__name__}; "
+        "ClassVar, InitVar and annotations of non-dataclass bases are not columns"
+    )
+
+
+@dataclass
+class NotRequiredKeyed(UniqueKeys[Key[Literal["id", "kind"]]]):
+    id: int
+    kind: NotRequiredColumn[str]
+
+
+def test_unique_keys_skips_a_dataclass_key_column_that_may_be_missing_and_is_absent():
+    result = DataFrame[NotRequiredKeyed](pd.DataFrame({"id": [1, 1]}))
+
+    assert len(result) == 2
