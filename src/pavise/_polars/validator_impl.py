@@ -72,7 +72,7 @@ def find_violation(series: "pl.Series", validator: Any, col_name: str) -> Violat
             return None
     elif isinstance(validator, In):
         violation = Violation(
-            ~series.is_in(validator.allowed_values), "contains values not in allowed values"
+            ~is_in_values(series, validator.allowed_values), "contains values not in allowed values"
         )
     elif isinstance(validator, Regex):
         violation = _find_regex(series, validator, col_name)
@@ -234,3 +234,35 @@ def _find_regex(series: "pl.Series", validator: Regex, col_name: str) -> Violati
     except pl.exceptions.ComputeError as e:
         raise invalid_pattern_error(validator.pattern, col_name, e) from e
     return Violation(invalid_mask, "contains values that don't match the pattern")
+
+
+def is_in_values(series: "pl.Series", values: Any) -> "pl.Series":
+    """Return which values of ``series`` are in ``values``; nulls stay null, as with is_in."""
+    if series.dtype != pl.Object:
+        try:
+            return series.is_in(values)
+        except (TypeError, pl.exceptions.InvalidOperationError):
+            # TypeError: values of several types cannot form the one polars Series is_in needs.
+            # InvalidOperationError: is_in refuses values of another dtype than the column.
+            pass
+    # polars' is_in cannot check Object columns, so compare the Python values instead
+    allowed = list(values)
+    try:
+        allowed_set: set | None = set(allowed)
+    except TypeError:
+        allowed_set = None
+
+    def contains(value: Any) -> bool:
+        # A set lookup keeps large allowed lists cheap; unhashable values need the list scan
+        if allowed_set is not None:
+            try:
+                return value in allowed_set
+            except TypeError:
+                pass
+        return value in allowed
+
+    return pl.Series(
+        series.name,
+        [None if value is None else contains(value) for value in series.to_list()],
+        dtype=pl.Boolean,
+    )

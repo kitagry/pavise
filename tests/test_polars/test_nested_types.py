@@ -329,6 +329,18 @@ def test_literal_with_none_inside_list_accepts_nulls() -> None:
     assert isinstance(result, pl.DataFrame)
 
 
+def test_mixed_literal_inside_list_checks_elements() -> None:
+    """Literal values of several types cannot form one polars Series"""
+
+    class Schema(Protocol):
+        codes: list[Literal[1, "a"]]
+
+    DataFrame[Schema](pl.DataFrame({"codes": [[1], [1, 1]]}))
+    with pytest.raises(ValidationError) as exc_info:
+        DataFrame[Schema](pl.DataFrame({"codes": [[1], [1, 2]]}))
+    assert exc_info.value.invalid_samples == [(1, [1, 2])]
+
+
 def test_dataframe_check_on_nested_protocol_is_ignored() -> None:
     """dataframe_check runs on whole DataFrames, so a Protocol used as a struct skips it"""
 

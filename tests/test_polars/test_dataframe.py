@@ -370,6 +370,35 @@ def test_dataframe_literal_with_none_accepts_null_values():
     DataFrame[LiteralWithNoneSchema](df)
 
 
+class MixedLiteralSchema(Protocol):
+    v: Literal[1, "a"] | None
+
+
+def test_dataframe_mixed_literal_accepts_allowed_union_values():
+    """A Literal of several types needs a union column, stored as Object"""
+    df = pl.DataFrame({"v": pl.Series([1, "a", None], dtype=pl.Object)})
+    DataFrame[MixedLiteralSchema](df)
+
+
+def test_dataframe_mixed_literal_rejects_invalid_union_values():
+    df = pl.DataFrame({"v": pl.Series([1, "a", "b", 3], dtype=pl.Object)})
+    with pytest.raises(ValidationError) as exc_info:
+        DataFrame[MixedLiteralSchema](df)
+    assert str(exc_info.value) == (
+        "Column 'v': expected one of (1, 'a'), got invalid values\n\n"
+        "Sample invalid values (showing first 2 of 2):\n"
+        "  Row 2: 'b'\n"
+        "  Row 3: 3"
+    )
+
+
+def test_dataframe_mixed_literal_checks_plain_column():
+    DataFrame[MixedLiteralSchema](pl.DataFrame({"v": [1, None]}))
+    with pytest.raises(ValidationError) as exc_info:
+        DataFrame[MixedLiteralSchema](pl.DataFrame({"v": [1, 2]}))
+    assert exc_info.value.invalid_samples == [(1, 2)]
+
+
 def test_dataframe_with_notrequired_missing_column():
     """DataFrame[Schema] with NotRequired passes when optional column is missing"""
     df = pl.DataFrame({"user_id": [1, 2, 3], "name": ["Alice", "Bob", "Charlie"]})

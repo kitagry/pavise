@@ -23,6 +23,7 @@ from pavise._polars.validator_impl import (
     BOUND_VALIDATORS,
     MAX_SAMPLE_SIZE,
     find_violation,
+    is_in_values,
     require_orderable_dtype,
 )
 from pavise._violation import Violation, with_length
@@ -183,7 +184,7 @@ def _check_values(
                 )
     elif get_origin(node.type) is Literal:
         allowed = get_args(node.type)
-        invalid = ~values.is_in([v for v in allowed if v is not None])
+        invalid = ~is_in_values(values, [v for v in allowed if v is not None])
         if invalid.any():
             _raise_for_rows(
                 f"expected one of {allowed}, got invalid values",
