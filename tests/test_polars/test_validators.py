@@ -83,6 +83,85 @@ def test_in_validator_rejects_disallowed_values():
         DataFrame[StatusSchema](df)
 
 
+class UnionInSchema(Protocol):
+    v: Annotated[int | str | None, In([1, "a"])]
+
+
+class UnionInSameTypeSchema(Protocol):
+    v: Annotated[int | str, In([1, 2])]
+
+
+class MixedInSchema(Protocol):
+    v: Annotated[int, In([1, "a"])]
+
+
+def test_in_validator_accepts_allowed_union_values():
+    """A union column is stored as Object, which polars' is_in cannot check"""
+    df = pl.DataFrame({"v": pl.Series([1, "a", None, 1], dtype=pl.Object)})
+    result = DataFrame[UnionInSchema](df)
+    assert isinstance(result, pl.DataFrame)
+
+
+def test_in_validator_rejects_disallowed_union_values():
+    df = pl.DataFrame({"v": pl.Series([1, "a", "b", 3], dtype=pl.Object)})
+    with pytest.raises(ValidationError) as exc_info:
+        DataFrame[UnionInSchema](df)
+    assert str(exc_info.value) == (
+        "Column 'v': contains values not in allowed values\n\n"
+        "Sample invalid values (showing first 2 of 2):\n"
+        "  Row 2: 'b'\n"
+        "  Row 3: 3"
+    )
+
+
+def test_in_validator_rejects_union_values_of_another_type_than_allowed():
+    df = pl.DataFrame({"v": pl.Series([1, "a", 2], dtype=pl.Object)})
+    with pytest.raises(ValidationError) as exc_info:
+        DataFrame[UnionInSameTypeSchema](df)
+    assert exc_info.value.invalid_samples == [(1, "a")]
+
+
+def test_in_validator_rejects_disallowed_union_values_on_lazyframe_collect():
+    lf = pl.LazyFrame({"v": pl.Series([1, "b"], dtype=pl.Object)})
+    with pytest.raises(ValidationError) as exc_info:
+        LazyFrame[UnionInSchema](lf).collect()
+    assert exc_info.value.invalid_samples == [(1, "b")]
+
+
+def test_in_validator_with_mixed_allowed_values_checks_plain_column():
+    """Allowed values of several types cannot form one polars Series"""
+    assert isinstance(DataFrame[MixedInSchema](pl.DataFrame({"v": [1, 1]})), pl.DataFrame)
+    with pytest.raises(ValidationError) as exc_info:
+        DataFrame[MixedInSchema](pl.DataFrame({"v": [1, 2]}))
+    assert exc_info.value.invalid_samples == [(1, 2)]
+
+
+class StrInIntSchema(Protocol):
+    v: Annotated[str, In([1, 2])]
+
+
+def test_in_validator_with_allowed_values_of_another_dtype_rejects_all_values():
+    """polars' is_in refuses allowed values of another dtype than the column"""
+    with pytest.raises(ValidationError) as exc_info:
+        DataFrame[StrInIntSchema](pl.DataFrame({"v": ["a", "b"]}))
+    assert exc_info.value.invalid_samples == [(0, "a"), (1, "b")]
+
+
+class AnyInSchema(Protocol):
+    v: Annotated[Any, In([1, "a"])]
+
+
+def test_in_validator_on_object_column_compares_unhashable_values():
+    df = pl.DataFrame({"v": pl.Series([[1], 1, "a"], dtype=pl.Object)})
+    with pytest.raises(ValidationError) as exc_info:
+        DataFrame[AnyInSchema](df)
+    assert str(exc_info.value) == (
+        "Column 'v': contains values not in allowed values\n\n"
+        "Sample invalid values (showing first 1 of 1):\n"
+        "  Row 0: [1]"
+    )
+
+
 def test_regex_validator_accepts_matching_values():
     """Regex validator accepts values that match the pattern"""
     df = pl.DataFrame({"email": ["user@example.com", "test@test.org", "admin@company.co.jp"]})
