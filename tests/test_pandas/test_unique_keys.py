@@ -70,6 +70,22 @@ def test_unique_keys_checks_composite_key():
     )
 
 
+def test_unique_keys_reports_duplicates_beside_duplicated_column_outside_schema():
+    df = pd.DataFrame(
+        [[1, 1, "d", 0, 0], [2, 1, "d", 0, 0]],
+        columns=pd.Index(["id", "user_id", "date", "x", "x"]),
+    )
+
+    with pytest.raises(ValidationError) as exc_info:
+        DataFrame[DailyActivity](df)
+
+    assert str(exc_info.value) == (
+        "Columns ('user_id', 'date') must be unique, found 1 duplicate key"
+        "\n\nSample duplicate keys (showing first 1 of 1):"
+        "\n  {'user_id': 1, 'date': 'd'}: rows [0, 1]"
+    )
+
+
 def test_unique_keys_checks_every_key():
     df = pd.DataFrame({"id": [1, 2], "user_id": [1, 1], "date": ["d", "d"]})
 
