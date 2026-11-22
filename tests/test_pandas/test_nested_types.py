@@ -331,6 +331,55 @@ def test_element_validator_reports_value_and_row_label() -> None:
     )
 
 
+def test_element_validator_reports_row_label_after_skipping_nulls() -> None:
+    class Schema(Protocol):
+        scores: list[Annotated[int | None, Range(0, 100)]] | None
+
+    df = arrow_frame(
+        "scores",
+        [None, [None, 50, 120], [], [None, -3]],
+        pa.list_(pa.int64()),
+        index=["a", "b", "c", "d"],
+    )
+    assert _validation_message(df, Schema) == (
+        "Column 'scores[]': values must be in range [0, 100]\n\n"
+        "Sample invalid values (showing first 2 of 2):\n"
+        "  Row b: 120 (in [None, 50, 120])\n"
+        "  Row d: -3 (in [None, -3])"
+    )
+
+
+def test_literal_inside_list_reports_row_label_after_skipping_null_rows() -> None:
+    class Schema(Protocol):
+        roles: list[Literal["admin", "staff"]] | None
+
+    df = arrow_frame(
+        "roles", [None, ["admin"], None, ["guest"]], pa.list_(pa.string()), index=[10, 11, 12, 13]
+    )
+    assert _validation_message(df, Schema) == (
+        "Column 'roles[]': expected one of ('admin', 'staff'), got invalid values\n\n"
+        "Sample invalid values (showing first 1 of 1):\n"
+        "  Row 13: ['guest']"
+    )
+
+
+def test_struct_field_null_reports_row_label_after_skipping_null_structs() -> None:
+    class Schema(Protocol):
+        history: list[Address | None]
+
+    df = arrow_frame(
+        "history",
+        [[None, ADDRESS], [None, {"city": None, "zip": "100-0002"}]],
+        pa.list_(ADDRESS_TYPE),
+        index=["x", "y"],
+    )
+    assert _validation_message(df, Schema) == (
+        "Column 'history[].city': is non-optional but contains null values\n\n"
+        "Sample invalid values (showing first 1 of 1):\n"
+        "  Row y: [None, {'city': None, 'zip': '100-0002'}]"
+    )
+
+
 def test_element_validator_accepts_valid_values_and_skips_nulls() -> None:
     class Schema(Protocol):
         scores: list[Annotated[int | None, Range(0, 100)]] | None

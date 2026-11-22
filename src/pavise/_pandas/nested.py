@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import date, datetime, timedelta
 from typing import Any, Literal, NoReturn, get_args, get_origin
 
@@ -74,8 +75,9 @@ def check_nested_column(field: Field, series: pd.Series, column_name: str, stric
     values = pa.array(series)
     if isinstance(values, pa.ChunkedArray):
         values = values.combine_chunks()
-    positions = np.arange(len(series))
-    _check_values(field, values, positions, series, values, column_name, column_name)
+    _check_values(
+        field, values, lambda: np.arange(len(series)), series, values, column_name, column_name
+    )
 
 
 def _check_type(
@@ -154,7 +156,7 @@ def _raise_for_positions(
 def _check_values(
     field: Field,
     values: Any,
-    positions: npt.NDArray[np.intp],
+    positions: Callable[[], npt.NDArray[np.intp]],
     series: pd.Series,
     column: Any,
     column_name: str,
@@ -163,18 +165,19 @@ def _check_values(
     """
     Check nulls, Literal values and validators of ``values``, the Arrow values at ``path``.
 
-    ``positions`` holds the row position each value comes from, so errors can show the whole
-    row (``column`` is the column as an Arrow array, ``series`` gives the row labels).
+    ``positions`` returns the row position each value comes from, so errors can show the whole
+    row (``column`` is the column as an Arrow array, ``series`` gives the row labels). It is
+    called only to raise, since building the positions costs as much as checking the values.
     """
     import pyarrow as pa
     import pyarrow.compute as pc
 
-    is_null = values.is_null().to_numpy(zero_copy_only=False)
-    if is_null.any():
+    if values.null_count:
+        is_null = values.is_null().to_numpy(zero_copy_only=False)
         if not field.nullable:
             _raise_for_positions(
                 "is non-optional but contains null values",
-                positions[is_null],
+                positions()[is_null],
                 series,
                 column,
                 column_name,
@@ -182,17 +185,16 @@ def _check_values(
             )
         keep = ~is_null
         values = values.filter(pa.array(keep))
-        positions = positions[keep]
+        positions = _select_positions(positions, keep)
     if pa.types.is_null(values.type):
         return
 
     node = field.node
     if isinstance(node, ListOf):
-        parents = pc.call_function("list_parent_indices", [values])
         _check_values(
             node.element,
             pc.call_function("list_flatten", [values]),
-            positions[parents.to_numpy(zero_copy_only=False)],
+            _list_element_positions(positions, values),
             series,
             column,
             column_name,
@@ -224,7 +226,7 @@ def _check_values(
         if invalid.any():
             _raise_for_positions(
                 f"expected one of {allowed}, got invalid values",
-                positions[invalid],
+                positions()[invalid],
                 series,
                 column,
                 column_name,
@@ -237,6 +239,27 @@ def _check_values(
         violation = _find_nested_violation(node, values, validator, column_name, path)
         if violation is not None:
             _raise_violation(violation, values, positions, series, column, column_name, path)
+
+
+def _select_positions(
+    positions: Callable[[], npt.NDArray[np.intp]], keep: npt.NDArray[np.bool_]
+) -> Callable[[], npt.NDArray[np.intp]]:
+    # A function rather than an inline lambda: ``positions = lambda: positions()[keep]`` would
+    # look up the reassigned name when called and recurse forever
+    return lambda: positions()[keep]
+
+
+def _list_element_positions(
+    positions: Callable[[], npt.NDArray[np.intp]], lists: Any
+) -> Callable[[], npt.NDArray[np.intp]]:
+    """Positions of the elements of ``lists``, each taken from the list it belongs to."""
+    import pyarrow.compute as pc
+
+    def element_positions() -> npt.NDArray[np.intp]:
+        parents = pc.call_function("list_parent_indices", [lists])
+        return positions()[parents.to_numpy(zero_copy_only=False)]
+
+    return element_positions
 
 
 def _find_nested_violation(
@@ -276,7 +299,7 @@ def _find_nested_violation(
 def _raise_violation(
     violation: Violation,
     values: Any,
-    positions: npt.NDArray[np.intp],
+    positions: Callable[[], npt.NDArray[np.intp]],
     series: pd.Series,
     column: Any,
     column_name: str,
@@ -286,7 +309,7 @@ def _raise_violation(
 
     mask = violation.mask
     invalid_values = values.filter(pa.array(mask))
-    invalid_positions = positions[mask]
+    invalid_positions = positions()[mask]
     samples = [
         (_to_python_scalar(series.index[pos]), value, column[int(pos)].as_py())
         for pos, value in zip(
