@@ -217,19 +217,18 @@ def _run_unique_check(df: pd.DataFrame, check: UniqueCheck) -> None:
     if not all(c in df.columns for c in columns):
         return
 
-    # Select the key columns first: df.duplicated(subset=...) goes through every column.
-    keys = df.loc[:, columns]
     # keep=False also marks first occurrences for the error, which is slower than the
     # default, so pay for it only once a duplicate is known to exist.
     try:
-        has_duplicates = keys.duplicated().any()
+        if not _has_duplicate_rows(df, columns):
+            return
+        keys = df.loc[:, columns]
     except (TypeError, NotImplementedError):
         # Lists and dicts are unhashable, and pyarrow cannot hash list columns either,
         # so compare such values by content instead.
-        keys = keys.apply(lambda col: col.astype(object).map(_hashable))
-        has_duplicates = keys.duplicated().any()
-    if not has_duplicates:
-        return
+        keys = df.loc[:, columns].apply(lambda col: col.astype(object).map(_hashable))
+        if not keys.duplicated().any():
+            return
     duplicated = keys.duplicated(keep=False)
 
     positions = np.flatnonzero(duplicated.to_numpy(dtype=bool))
@@ -250,6 +249,43 @@ def _run_unique_check(df: pd.DataFrame, check: UniqueCheck) -> None:
         for _, group in itertools.islice(groups, MAX_SAMPLE_SIZE)
     ]
     raise ValidationError.new_with_duplicate_keys(check.columns, duplicates, groups.ngroups)
+
+
+def _has_duplicate_rows(df: pd.DataFrame, columns: list[str]) -> bool:
+    """Tell whether two rows hold equal values in every given column, nulls being equal.
+
+    This is DataFrame.duplicated without building a DataFrame of the columns: selecting
+    them with df.loc and boxing every column again costs more than the check itself on
+    small frames, and df.duplicated(subset=...) goes through every column of a wide frame.
+    """
+    if len(columns) == 1:
+        # One pass over the values, as DataFrame.duplicated does for a single column.
+        return bool(df[columns[0]].duplicated().any())
+    ids: Any = None
+    id_count = 1
+    for column in columns:
+        series = df[column]
+        # Series.values turns periods and intervals into objects and drops the time zone,
+        # and pandas 3.1 warns about it; the array of an extension dtype keeps them.
+        values = series.to_numpy() if isinstance(series.dtype, np.dtype) else series.array
+        codes, uniques = pd.factorize(values, size_hint=len(df))
+        if len(uniques) == len(df):
+            # Every row holds a distinct value here, so no two rows can be equal.
+            return False
+        # factorize gives every null -1; shift the codes so that nulls get a key of their own.
+        # The arrays are ours, so update them in place rather than allocating new ones.
+        codes += 1
+        size = len(uniques) + 1
+        if ids is None:
+            ids = codes
+        else:
+            if id_count * size > np.iinfo(ids.dtype).max:
+                ids, unique_ids = pd.factorize(ids)
+                id_count = len(unique_ids)
+            ids *= size
+            ids += codes
+        id_count *= size
+    return bool(pd.Series(ids, copy=False).duplicated().any())
 
 
 def _hashable(value: Any) -> Any:
