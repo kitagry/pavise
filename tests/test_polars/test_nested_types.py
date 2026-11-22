@@ -525,6 +525,72 @@ def test_lazyframe_checks_element_validators_on_collect() -> None:
         lf.collect()
 
 
+def _validate_frame(kind: str, schema: type, df: pl.DataFrame) -> None:
+    if kind == "DataFrame":
+        DataFrame[schema](df)
+    else:
+        LazyFrame[schema](df.lazy()).collect()
+
+
+@pytest.mark.parametrize("kind", ["DataFrame", "LazyFrame"])
+def test_element_errors_map_values_to_rows_past_nulls_and_empty_lists(kind: str) -> None:
+    """Null rows, null inner lists and empty lists before an invalid value keep its row"""
+
+    class Schema(Protocol):
+        matrix: list[list[Annotated[int, Ge(0)]] | None] | None
+
+    df = pl.DataFrame({"matrix": [None, [[1], [], None], [], [[2, -1], None, [-2]], [[-3]]]})
+    with pytest.raises(ValidationError) as exc_info:
+        _validate_frame(kind, Schema, df)
+    assert str(exc_info.value) == (
+        "Column 'matrix[][]': values must be >= 0\n\n"
+        "Sample invalid values (showing first 3 of 3):\n"
+        "  Row 3: -1 (in [[2, -1], None, [-2]])\n"
+        "  Row 3: -2 (in [[2, -1], None, [-2]])\n"
+        "  Row 4: -3 (in [[-3]])"
+    )
+
+
+@pytest.mark.parametrize("kind", ["DataFrame", "LazyFrame"])
+def test_null_elements_map_to_rows_past_null_rows_and_empty_lists(kind: str) -> None:
+    class Schema(Protocol):
+        tags: list[str] | None
+
+    df = pl.DataFrame({"tags": [None, [], ["a"], [None, "b", None], [], [None]]})
+    with pytest.raises(ValidationError) as exc_info:
+        _validate_frame(kind, Schema, df)
+    assert str(exc_info.value) == (
+        "Column 'tags[]': is non-optional but contains null values\n\n"
+        "Sample invalid values (showing first 2 of 2):\n"
+        "  Row 3: [None, 'b', None]\n"
+        "  Row 5: [None]"
+    )
+
+
+@pytest.mark.parametrize("kind", ["DataFrame", "LazyFrame"])
+def test_element_errors_map_values_to_rows_without_empty_lists(kind: str) -> None:
+    class Schema(Protocol):
+        history: list[Annotated[str, MinLen(2)]]
+
+    df = pl.DataFrame({"history": [["ab", "cd"], ["x"], ["ef", "y", "z"]]})
+    with pytest.raises(ValidationError) as exc_info:
+        _validate_frame(kind, Schema, df)
+    assert exc_info.value.invalid_samples == [(1, "x"), (2, "y"), (2, "z")]
+
+
+@pytest.mark.parametrize("kind", ["DataFrame", "LazyFrame"])
+def test_element_errors_map_values_to_rows_in_array_column(kind: str) -> None:
+    class Schema(Protocol):
+        pairs: list[Annotated[int, Ge(0)]]
+
+    df = pl.DataFrame(
+        {"pairs": [[1, 2], [3, -4], [-5, 6]]}, schema={"pairs": pl.Array(pl.Int64, 2)}
+    )
+    with pytest.raises(ValidationError) as exc_info:
+        _validate_frame(kind, Schema, df)
+    assert exc_info.value.invalid_samples == [(1, -4), (2, -5)]
+
+
 def test_custom_on_list_does_not_see_null_elements_the_annotation_rejects() -> None:
     class Schema(Protocol):
         items: Annotated[list[int], Custom(lambda v: sum(v) < 10, "sum must be below 10")]
