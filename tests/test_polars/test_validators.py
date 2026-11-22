@@ -770,3 +770,13 @@ def test_unique_validator_handles_object_values_with_ambiguous_truth():
     with pytest.raises(ValidationError) as exc_info:
         DataFrame[AnyValueSchema](_object_frame([pd.NA, 1, pd.NA]))
     assert [row for row, _ in exc_info.value.invalid_samples] == [0, 2]
+
+
+class RowNamedSchema(Protocol):
+    __row__: Annotated[int, Ge(0)]
+
+
+def test_validator_error_on_a_column_named_like_the_sample_row_index():
+    with pytest.raises(ValidationError) as exc_info:
+        DataFrame[RowNamedSchema](pl.DataFrame({"__row__": [1, -1]}))
+    assert exc_info.value.invalid_samples == [(1, -1)]
