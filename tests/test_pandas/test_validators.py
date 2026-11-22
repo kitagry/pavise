@@ -664,3 +664,40 @@ def test_regex_validator_accepts_verbose_pattern_ending_in_comment(dtype: str):
     DataFrame[Schema](pd.DataFrame({"v": _string_series(["abc"], dtype)}))
     with pytest.raises(ValidationError, match="v.*pattern"):
         DataFrame[Schema](pd.DataFrame({"v": _string_series(["abc1"], dtype)}))
+
+
+class UsernameLengthSchema(Protocol):
+    username: Annotated[str, MinLen(3), MaxLen(5)]
+
+
+def test_minlen_and_maxlen_report_minlen_first_when_both_fail():
+    """MinLen is reported before MaxLen when a column breaks both"""
+    df = pd.DataFrame({"username": ["ab", "toolongname"]})
+    with pytest.raises(ValidationError, match="shorter than minimum length"):
+        DataFrame[UsernameLengthSchema](df)
+
+
+def test_minlen_and_maxlen_report_maxlen_when_only_it_fails():
+    """MaxLen is reported when the strings are long enough but some are too long"""
+    df = pd.DataFrame({"username": ["abc", "toolongname"]})
+    with pytest.raises(ValidationError, match="longer than maximum length"):
+        DataFrame[UsernameLengthSchema](df)
+
+
+def test_minlen_and_maxlen_compute_string_lengths_once(monkeypatch: pytest.MonkeyPatch):
+    """MinLen and MaxLen on one column share the string lengths instead of computing them twice"""
+    # Taken from an instance so the test does not depend on pandas' private module layout
+    string_methods = type(pd.Series(["a"]).str)
+
+    calls = 0
+    original_len = string_methods.len
+
+    def counting_len(self: Any) -> Any:
+        nonlocal calls
+        calls += 1
+        return original_len(self)
+
+    monkeypatch.setattr(string_methods, "len", counting_len)
+    df = pd.DataFrame({"username": ["abc", "abcde"]})
+    DataFrame[UsernameLengthSchema](df)
+    assert calls == 1

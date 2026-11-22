@@ -23,7 +23,7 @@ from pavise._annotations import SchemaColumn, dataframe_columns, nested_column_f
 from pavise._pandas.nested import check_nested_column
 from pavise._pandas.validator_impl import (
     MAX_SAMPLE_SIZE,
-    apply_validator,
+    apply_validators,
     get_invalid_samples,
     is_arrow_type,
 )
@@ -376,8 +376,7 @@ def _check_index_type(df: pd.DataFrame, expected_type: type) -> None:
             raise ValidationError(f"Index expected {base_type.__name__}, got {df.index.dtype}")
 
         index_series = pd.Series(df.index)
-        for validator in validators:
-            apply_validator(index_series, validator, "Index")
+        apply_validators(index_series, validators, "Index")
 
 
 def _check_multiindex_type(
@@ -421,8 +420,7 @@ def _check_multiindex_type(
     if validators:
         for level_idx in range(len(level_types)):
             level_series = pd.Series(df.index.get_level_values(level_idx))
-            for validator in validators:
-                apply_validator(level_series, validator, f"Index level {level_idx}")
+            apply_validators(level_series, validators, f"Index level {level_idx}")
 
 
 def _check_column_exists(df: pd.DataFrame, col_name: str) -> None:
@@ -459,8 +457,7 @@ def _check_column_type(
             raise ValidationError(
                 f"expected {base_type}, got {col_series.dtype}", column_name=col_name
             )
-        for validator in validators:
-            apply_validator(col_series, validator, col_name)
+        apply_validators(col_series, validators, col_name)
         return
 
     if isinstance(base_type, type) and issubclass(base_type, pd.api.extensions.ExtensionDtype):
@@ -472,8 +469,7 @@ def _check_column_type(
                 f"expected {base_tname}, got {col_tname}",
                 column_name=col_name,
             )
-        for validator in validators:
-            apply_validator(col_series, validator, col_name)
+        apply_validators(col_series, validators, col_name)
         return
 
     if get_origin(base_type) is Literal:
@@ -492,8 +488,7 @@ def _check_column_type(
                 total_invalid,
                 repr,
             )
-        for validator in validators:
-            apply_validator(col_series, validator, col_name)
+        apply_validators(col_series, validators, col_name)
         return
 
     # Handle Union types (represented as tuple)
@@ -521,8 +516,7 @@ def _check_column_type(
                 repr,
             )
 
-        for validator in validators:
-            apply_validator(col_series, validator, col_name)
+        apply_validators(col_series, validators, col_name)
         return
 
     if base_type not in TYPE_CHECKERS:
@@ -548,5 +542,4 @@ def _check_column_type(
             repr,
         )
 
-    for validator in validators:
-        apply_validator(col_series, validator, col_name)
+    apply_validators(col_series, validators, col_name)

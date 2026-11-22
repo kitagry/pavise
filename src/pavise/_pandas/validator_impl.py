@@ -1,8 +1,9 @@
 """Pandas-specific validator implementations."""
 
+import functools
 import operator
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from datetime import date, datetime
 from typing import Any
 
@@ -44,30 +45,40 @@ _ORDERABLE_OBJECT_KINDS = frozenset(
 )
 
 
-def apply_validator(series: pd.Series, validator: Any, col_name: str) -> None:
+def apply_validators(series: pd.Series, validators: Iterable[Any], col_name: str) -> None:
     """
-    Apply a validator to a pandas Series.
+    Apply validators to a pandas Series in order, raising for the first one that fails.
 
     Args:
         series: pandas Series to validate
-        validator: Validator instance (e.g., Range, Unique, In, Regex, MinLen, MaxLen)
+        validators: Validator instances (e.g., Range, Unique, In, Regex, MinLen, MaxLen)
         col_name: column name for error messages
 
     Raises:
         ValidationError: if validation fails
     """
-    violation = find_violation(series, validator, col_name)
-    if violation is None:
-        return
-    samples, total_invalid = get_invalid_samples(series, violation.mask)
-    raise ValidationError.new_with_samples(
-        col_name, violation.message, samples, total_invalid, violation.format_value
-    )
+    # str.len() loops in Python over object columns, so MinLen and MaxLen share one result.
+    str_len = functools.cache(lambda: series.str.len())
+    for validator in validators:
+        violation = find_violation(series, validator, col_name, str_len)
+        if violation is None:
+            continue
+        samples, total_invalid = get_invalid_samples(series, violation.mask)
+        raise ValidationError.new_with_samples(
+            col_name, violation.message, samples, total_invalid, violation.format_value
+        )
 
 
-def find_violation(series: pd.Series, validator: Any, col_name: str) -> Violation | None:
+def find_violation(
+    series: pd.Series,
+    validator: Any,
+    col_name: str,
+    str_len: Callable[[], pd.Series] | None = None,
+) -> Violation | None:
     """
     Find the values a validator rejects, or None if it accepts them all.
+
+    ``str_len`` returns ``series.str.len()``, so validators can share it.
 
     Raises:
         ValidationError: if the validator cannot be applied to the series at all
@@ -89,13 +100,13 @@ def find_violation(series: pd.Series, validator: Any, col_name: str) -> Violatio
         violation = _find_regex(series, validator, col_name)
     elif isinstance(validator, MinLen):
         violation = Violation(
-            series.str.len() < validator.min_length,
+            _str_len(series, str_len) < validator.min_length,
             "contains strings shorter than minimum length",
             with_length,
         )
     elif isinstance(validator, MaxLen):
         violation = Violation(
-            series.str.len() > validator.max_length,
+            _str_len(series, str_len) > validator.max_length,
             "contains strings longer than maximum length",
             with_length,
         )
@@ -110,6 +121,10 @@ def find_violation(series: pd.Series, validator: Any, col_name: str) -> Violatio
     if not mask.any():
         return None
     return Violation(mask, violation.message, violation.format_value)
+
+
+def _str_len(series: pd.Series, str_len: Callable[[], pd.Series] | None) -> pd.Series:
+    return series.str.len() if str_len is None else str_len()
 
 
 def get_invalid_samples(
