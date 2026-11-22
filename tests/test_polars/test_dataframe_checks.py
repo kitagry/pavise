@@ -11,6 +11,7 @@ import polars as pl
 from pavise.checks import dataframe_check
 from pavise.exceptions import ValidationError
 from pavise.polars import DataFrame, LazyFrame
+from pavise.types import NotRequiredColumn
 
 
 @dataframe_check(lambda df: pl.col("start_at") < pl.col("end_at"), name="start_before_end")
@@ -222,3 +223,15 @@ def test_row_check_works_with_column_named_like_internal_row_index():
         DataFrame[RowNamedColumnSchema](df)
 
     assert exc_info.value.invalid_samples == [(1, {"__row__": -1})]
+
+
+@dataframe_check(lambda df: df["x"] > 0, name="x_positive")
+class AbsentColumnsSchema(Protocol):
+    a: NotRequiredColumn[int]
+
+
+def test_row_check_reports_rows_when_no_schema_column_is_present():
+    with pytest.raises(ValidationError, match="DataFrame check 'x_positive' failed") as exc_info:
+        DataFrame[AbsentColumnsSchema](pl.DataFrame({"x": [-1, 1]}))
+
+    assert exc_info.value.invalid_samples == [(0, {})]

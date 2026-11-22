@@ -21,6 +21,20 @@ from pavise.validators import Custom, Ge, Gt, In, Le, Lt, MaxLen, MinLen, Range,
 # Maximum number of invalid sample values to show in error messages
 MAX_SAMPLE_SIZE = 5
 
+
+def is_pattern(name: str) -> bool:
+    """Whether pl.col reads the name as a regex or wildcard instead of the column itself."""
+    return name == "*" or (name.startswith("^") and name.endswith("$"))
+
+
+def column_values(df: "pl.DataFrame", name: str) -> "pl.Series":
+    """The column, under a name that polars does not mistake for a pattern."""
+    series = df.get_column(name)
+    # Series methods run as pl.col(series.name) on a one-column frame, so they would find
+    # no column. Other names stay, as polars names the column in errors it raises.
+    return series.rename("values") if is_pattern(name) else series
+
+
 # Maps each comparison validator to the operator that detects violations and its symbol
 _COMPARISONS = {
     Ge: (operator.lt, ">="),
@@ -125,11 +139,10 @@ def get_invalid_samples(
     Returns:
         Tuple of (samples, total_invalid) where samples is a list of (index, value) tuples
     """
-    invalid_df = series.to_frame().with_row_index("__row__").filter(invalid_mask)
-    samples = [
-        (row["__row__"], row[series.name])
-        for row in invalid_df.head(MAX_SAMPLE_SIZE).iter_rows(named=True)
-    ]
+    # Kept apart from the values, so no row index column can clash with the column's name
+    rows = invalid_mask.arg_true().head(MAX_SAMPLE_SIZE).to_list()
+    values = series.filter(invalid_mask).head(MAX_SAMPLE_SIZE).to_list()
+    samples = list(zip(rows, values))
     total_invalid = int(invalid_mask.sum())
     return samples, total_invalid
 

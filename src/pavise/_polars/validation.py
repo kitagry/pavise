@@ -30,9 +30,11 @@ from pavise._polars.validator_impl import (
     FALLBACK_ERRORS,
     MAX_SAMPLE_SIZE,
     apply_validator,
+    column_values,
     get_invalid_samples,
     is_in_expr,
     is_in_values,
+    is_pattern,
     passing_expr,
     require_orderable_dtype,
 )
@@ -152,7 +154,7 @@ def _build_batch_plan(
     plan: _BatchPlan = []
     for col_name, column in expected_cols.items():
         dtype = dtypes.get(col_name)
-        if dtype is None or column.nested or dtype == pl.Object or _is_pattern(col_name):
+        if dtype is None or column.nested or dtype == pl.Object or is_pattern(col_name):
             continue
         base_type = column.base_type
         col = pl.col(col_name)
@@ -173,7 +175,7 @@ def _build_batch_plan(
 
     for i, check in enumerate(dataframe_checks):
         if isinstance(check, UniqueCheck) and all(
-            c in dtypes and dtypes[c] != pl.Object and not _is_pattern(c) for c in check.columns
+            c in dtypes and dtypes[c] != pl.Object and not is_pattern(c) for c in check.columns
         ):
             plan.append(((None, i), ~pl.struct(list(check.columns)).is_duplicated().any()))
 
@@ -191,9 +193,9 @@ def _evaluates(df: pl.DataFrame, expr: pl.Expr) -> bool:
     return True
 
 
-def _is_pattern(name: str) -> bool:
-    """Whether pl.col reads the name as a regex or wildcard instead of the column itself."""
-    return name == "*" or (name.startswith("^") and name.endswith("$"))
+def _exact_columns(df: pl.DataFrame, columns: list[str]) -> pl.DataFrame:
+    """The columns, without polars reading a name like "^a$" or "*" as a pattern."""
+    return pl.DataFrame([df.get_column(c) for c in columns])
 
 
 def _run_unique_check(df: pl.DataFrame, check: UniqueCheck) -> None:
@@ -203,14 +205,15 @@ def _run_unique_check(df: pl.DataFrame, check: UniqueCheck) -> None:
     if not all(c in df.columns for c in columns):
         return
 
-    duplicated = df.select(pl.struct(columns).is_duplicated()).to_series()
+    # Taken by exact name: pl.struct reads a name like "^a$" as a pattern. Nesting the key
+    # columns in a struct also keeps their names from clashing with the helpers.
+    keys = _exact_columns(df, columns).to_struct("key")
+    duplicated = keys.is_duplicated()
     if not duplicated.any():
         return
 
-    # Nesting the key columns in a struct keeps their names from clashing with the helpers.
     groups = (
-        df.select(pl.struct(columns).alias("key"), pl.int_range(pl.len()).alias("row"))
-        .filter(duplicated)
+        pl.DataFrame([keys.filter(duplicated), duplicated.arg_true().alias("row")])
         .group_by("key", maintain_order=True)
         .agg(pl.col("row").head(MAX_SAMPLE_SIZE), pl.len().alias("count"))
     )
@@ -262,14 +265,20 @@ def _run_dataframe_check(df: pl.DataFrame, check: DataFrameCheck, schema_cols: l
         )
 
     # Null means the check could not be evaluated for the row, which counts as passing.
-    invalid_mask = ~result.fill_null(True)
+    # A mask such as df["^a$"] > 0 is named like a pattern, which Series methods misread.
+    invalid_mask = ~result.rename("mask").fill_null(True)
     total_invalid = int(invalid_mask.sum())
     if total_invalid == 0:
         return
 
     row_numbers = invalid_mask.arg_true().head(MAX_SAMPLE_SIZE).to_list()
-    invalid_rows = df.select(schema_cols).filter(invalid_mask).head(MAX_SAMPLE_SIZE)
-    samples: list[tuple[Any, ...]] = list(zip(row_numbers, invalid_rows.iter_rows(named=True)))
+    if schema_cols:
+        invalid_rows = _exact_columns(df, schema_cols).filter(invalid_mask).head(MAX_SAMPLE_SIZE)
+        rows: list[dict[str, Any]] = list(invalid_rows.iter_rows(named=True))
+    else:
+        # A frame without columns has no rows to filter, though each row still failed
+        rows = [{} for _ in row_numbers]
+    samples: list[tuple[Any, ...]] = list(zip(row_numbers, rows))
     raise ValidationError.new_with_samples(None, base_message, samples, total_invalid)
 
 
@@ -404,11 +413,11 @@ def _invalid_value_mask(
 
 
 def _raise_type_error_with_samples(
-    df: pl.DataFrame, col_name: str, checker: TypeChecker, expected_type: type, actual_dtype: Any
+    series: pl.Series, col_name: str, checker: TypeChecker, expected_type: type, actual_dtype: Any
 ) -> None:
     """Raise TypeError with sample invalid values."""
-    invalid_mask = _invalid_value_mask(df[col_name], checker.value, null_valid=True)
-    samples, total_invalid = get_invalid_samples(df[col_name], invalid_mask)
+    invalid_mask = _invalid_value_mask(series, checker.value, null_valid=True)
+    samples, total_invalid = get_invalid_samples(series, invalid_mask)
 
     raise ValidationError.new_with_samples(
         col_name,
@@ -434,32 +443,33 @@ def _check_column_type(
 ) -> None:
     """Check if a column has the expected type and apply validators, except those in passed."""
     base_type, validators, is_optional = column.base_type, column.validators, column.nullable
+    series = column_values(df, col_name)
 
     if column.nested:
         field = nested_column_field(schema, col_name, column)
-        check_nested_dtype(field, df[col_name].dtype, col_name, strict)
-        check_nested_values(field, df[col_name], col_name)
+        check_nested_dtype(field, series.dtype, col_name, strict)
+        check_nested_values(field, series, col_name)
         return
 
     if is_dtype_annotation(base_type):
-        col_dtype = df[col_name].dtype
+        col_dtype = series.dtype
         if col_dtype != base_type:
             raise ValidationError(
                 f"expected {dtype_name(base_type)}, got {col_dtype}",
                 column_name=col_name,
             )
-        _apply_validators(df[col_name], validators, col_name, passed)
+        _apply_validators(series, validators, col_name, passed)
         return
 
     if get_origin(base_type) is Literal:
         allowed_values = get_args(base_type)
-        if not is_optional and None not in allowed_values and df[col_name].null_count() > 0:
+        if not is_optional and None not in allowed_values and series.null_count() > 0:
             raise ValidationError("is non-optional but contains null values", column_name=col_name)
         if (col_name, "literal") not in passed:
             # is_in propagates nulls, so nulls never count as invalid values here
-            invalid_mask = ~is_in_values(df[col_name], allowed_values)
+            invalid_mask = ~is_in_values(series, allowed_values)
             if invalid_mask.any():
-                samples, total_invalid = get_invalid_samples(df[col_name], invalid_mask)
+                samples, total_invalid = get_invalid_samples(series, invalid_mask)
                 raise ValidationError.new_with_samples(
                     col_name,
                     f"expected one of {allowed_values}, got invalid values",
@@ -467,7 +477,7 @@ def _check_column_type(
                     total_invalid,
                     repr,
                 )
-        _apply_validators(df[col_name], validators, col_name, passed)
+        _apply_validators(series, validators, col_name, passed)
         return
 
     # Handle Union types (represented as tuple)
@@ -480,41 +490,40 @@ def _check_column_type(
 
         # Check if each value matches at least one of the union types
         invalid_mask = _invalid_value_mask(
-            df[col_name],
+            series,
             lambda value: any(TYPE_CHECKERS[t].value(value) for t in union_types),
             null_valid=is_optional,
         )
         if invalid_mask.any():
-            samples, total_invalid = get_invalid_samples(df[col_name], invalid_mask)
+            samples, total_invalid = get_invalid_samples(series, invalid_mask)
             union_type_names = " | ".join(t.__name__ for t in base_type)
             raise ValidationError.new_with_samples(
                 col_name,
-                f"expected {union_type_names}, got {df[col_name].dtype}",
+                f"expected {union_type_names}, got {series.dtype}",
                 samples,
                 total_invalid,
                 repr,
             )
 
-        _apply_validators(df[col_name], validators, col_name, passed)
+        _apply_validators(series, validators, col_name, passed)
         return
 
     if base_type not in TYPE_CHECKERS:
         raise ValidationError(f"unsupported type: {base_type}", column_name=col_name)
 
     checker = TYPE_CHECKERS[base_type]
-    col_series = df[col_name]
-    col_dtype = col_series.dtype
+    col_dtype = series.dtype
     if not checker.dtype(col_dtype):
         # polars builds an all-null column as pl.Null since it has no values to infer a dtype
         # from. Validators reject pl.Null, while nulls of the declared type are skipped by them.
         if not (is_optional and col_dtype == pl.Null):
-            _raise_type_error_with_samples(df, col_name, checker, base_type, col_dtype)
-        col_series = col_series.cast(TYPE_TO_DTYPE[base_type])
+            _raise_type_error_with_samples(series, col_name, checker, base_type, col_dtype)
+        series = series.cast(TYPE_TO_DTYPE[base_type])
 
-    if not is_optional and col_series.null_count() > 0:
+    if not is_optional and series.null_count() > 0:
         raise ValidationError("is non-optional but contains null values", column_name=col_name)
 
-    _apply_validators(col_series, validators, col_name, passed)
+    _apply_validators(series, validators, col_name, passed)
 
 
 def _apply_validators(

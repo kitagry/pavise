@@ -22,6 +22,7 @@ from pavise._polars.dtypes import TYPE_CHECKERS, dtype_for_type, dtype_name, is_
 from pavise._polars.validator_impl import (
     BOUND_VALIDATORS,
     MAX_SAMPLE_SIZE,
+    column_values,
     find_violation,
     is_in_values,
     require_orderable_dtype,
@@ -176,12 +177,12 @@ def _check_values(
         element_rows = _element_rows(rows, lengths)
         _check_values(node.element, elements, element_rows, column, column_name, f"{path}[]")
     elif isinstance(node, StructOf):
-        present = {f.name for f in values.dtype.fields}  # type: ignore[attr-defined]
+        # Series.struct.field reads a name like "^a$" as a pattern, so look fields up here
+        fields = values.struct.unnest()
         for name, sub in node.fields.items():
-            if name in present:
-                _check_values(
-                    sub, values.struct.field(name), rows, column, column_name, f"{path}.{name}"
-                )
+            if name in fields.columns:
+                field_values = column_values(fields, name)
+                _check_values(sub, field_values, rows, column, column_name, f"{path}.{name}")
     elif get_origin(node.type) is Literal:
         allowed = get_args(node.type)
         invalid = ~is_in_values(values, [v for v in allowed if v is not None])
