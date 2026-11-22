@@ -31,6 +31,9 @@ _COMPARISONS = {
 
 BOUND_VALIDATORS = (Range, *_COMPARISONS)
 
+# A panic in polars is a BaseException, but where a fallback exists it too only means using it
+FALLBACK_ERRORS = (Exception, pl.exceptions.PanicException)
+
 # Bit widths of the integer dtypes; Int128 and UInt128 are missing from older polars
 _INTEGER_BITS = {
     getattr(pl, name): bits
@@ -155,15 +158,7 @@ def _compare(
         # value lies on the same side of it as 0 does
         return series.is_not_null() & bool(op(0, bound))
     try:
-        if (
-            isinstance(bound, date)
-            and not isinstance(bound, datetime)
-            and series.dtype == pl.Datetime
-        ):
-            # pandas stores date and datetime columns alike as datetime64 and so accepts a date
-            # bound on a datetime column; read it as midnight here so both backends agree
-            return op(series, datetime.combine(bound, time()))
-        return op(series, bound)
+        return op(series, _bound_for(series.dtype, bound))
     except (TypeError, NotImplementedError, pl.exceptions.PolarsError) as e:
         raise ValidationError(
             f"{type(validator).__name__} bound {bound!r} cannot be compared with "
@@ -184,6 +179,14 @@ def _outside_integer_dtype(dtype: "pl.DataType", bound: Any) -> bool:
     return not lowest <= int(bound) <= highest
 
 
+def _bound_for(dtype: "pl.DataType", bound: Any) -> Any:
+    if isinstance(bound, date) and not isinstance(bound, datetime) and dtype == pl.Datetime:
+        # pandas stores date and datetime columns alike as datetime64 and so accepts a date
+        # bound on a datetime column; read it as midnight here so both backends agree
+        return datetime.combine(bound, time())
+    return bound
+
+
 def _find_range(series: "pl.Series", validator: Range, col_name: str) -> Violation:
     """Find values outside the specified range."""
     invalid_mask = _compare(series, operator.lt, validator.min, validator, col_name) | _compare(
@@ -194,11 +197,13 @@ def _find_range(series: "pl.Series", validator: Range, col_name: str) -> Violati
     )
 
 
+def _comparison(validator: Ge | Gt | Le | Lt) -> tuple[Callable[[Any, Any], Any], str]:
+    return next(entry for cls, entry in _COMPARISONS.items() if isinstance(validator, cls))
+
+
 def _find_comparison(series: "pl.Series", validator: Ge | Gt | Le | Lt, col_name: str) -> Violation:
     """Find values that do not satisfy the comparison against the bound."""
-    violates, symbol = next(
-        entry for cls, entry in _COMPARISONS.items() if isinstance(validator, cls)
-    )
+    violates, symbol = _comparison(validator)
     invalid_mask = _compare(series, violates, validator.value, validator, col_name)
     if series.dtype.is_float():
         # Polars orders NaN above every number, so only upper bounds would catch it
@@ -291,3 +296,64 @@ def is_in_values(series: "pl.Series", values: Any) -> "pl.Series":
         [None if value is None else contains(value) for value in series.to_list()],
         dtype=pl.Boolean,
     )
+
+
+def passing_expr(column: "pl.Expr", dtype: "pl.DataType", validator: Any) -> "pl.Expr | None":
+    """
+    Build an expression that is true exactly when ``find_violation`` would find nothing, so
+    many validators can be evaluated in one query.
+
+    Returns None when only ``find_violation`` itself can decide: for Custom, for Object
+    columns, and when it fails for the dtype alone, so that it raises its own error. Also for
+    Unique: its n_unique is as fast alone, and slower on the streaming engine than on one core.
+    """
+    if dtype == pl.Object or isinstance(validator, (Custom, Unique)):
+        return None
+    empty = pl.Series("", [], dtype=dtype)
+    try:
+        find_violation(empty, validator, "")
+    except FALLBACK_ERRORS:  # it raises the same again on the real column
+        return None
+
+    if isinstance(validator, Range):
+        invalid = _compare_expr(column, dtype, operator.lt, validator.min) | _compare_expr(
+            column, dtype, operator.gt, validator.max
+        )
+    elif isinstance(validator, (Ge, Gt, Le, Lt)):
+        violates = _comparison(validator)[0]
+        invalid = _compare_expr(column, dtype, violates, validator.value)
+        if dtype.is_float():
+            invalid = invalid | column.is_nan()
+    elif isinstance(validator, In):
+        invalid = is_in_expr(column, dtype, validator.allowed_values)
+        if invalid is None:
+            return None
+        invalid = ~invalid
+    elif isinstance(validator, Regex):
+        invalid = ~column.str.contains(fullmatch_pattern(validator.pattern))
+    elif isinstance(validator, MinLen):
+        invalid = column.str.len_chars() < validator.min_length
+    elif isinstance(validator, MaxLen):
+        invalid = column.str.len_chars() > validator.max_length
+    else:
+        return None
+    return ~invalid.fill_null(False).any()
+
+
+def _compare_expr(
+    column: "pl.Expr", dtype: "pl.DataType", op: Callable[[Any, Any], Any], bound: Any
+) -> "pl.Expr":
+    """``_compare`` as an expression."""
+    if _outside_integer_dtype(dtype, bound):
+        return column.is_not_null() & bool(op(0, bound))
+    return op(column, _bound_for(dtype, bound))
+
+
+def is_in_expr(column: "pl.Expr", dtype: "pl.DataType", values: Any) -> "pl.Expr | None":
+    """``is_in`` as an expression, or None when only ``is_in_values`` can check the values."""
+    try:
+        pl.Series("", [], dtype=dtype).is_in(values)
+    except FALLBACK_ERRORS:
+        # is_in_values falls back for these, or raises the same again in the column's turn
+        return None
+    return column.is_in(values)
