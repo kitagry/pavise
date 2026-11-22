@@ -217,16 +217,20 @@ def _run_unique_check(df: pd.DataFrame, check: UniqueCheck) -> None:
     if not all(c in df.columns for c in columns):
         return
 
+    # Select the key columns first: df.duplicated(subset=...) goes through every column.
     keys = df.loc[:, columns]
+    # keep=False also marks first occurrences for the error, which is slower than the
+    # default, so pay for it only once a duplicate is known to exist.
     try:
-        duplicated = keys.duplicated(keep=False)
+        has_duplicates = keys.duplicated().any()
     except (TypeError, NotImplementedError):
         # Lists and dicts are unhashable, and pyarrow cannot hash list columns either,
         # so compare such values by content instead.
         keys = keys.apply(lambda col: col.astype(object).map(_hashable))
-        duplicated = keys.duplicated(keep=False)
-    if not duplicated.any():
+        has_duplicates = keys.duplicated().any()
+    if not has_duplicates:
         return
+    duplicated = keys.duplicated(keep=False)
 
     positions = np.flatnonzero(duplicated.to_numpy(dtype=bool))
     # Index by position so the samples can be taken from the original values, whatever

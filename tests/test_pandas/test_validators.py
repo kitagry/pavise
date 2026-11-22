@@ -701,3 +701,20 @@ def test_minlen_and_maxlen_compute_string_lengths_once(monkeypatch: pytest.Monke
     df = pd.DataFrame({"username": ["abc", "abcde"]})
     DataFrame[UsernameLengthSchema](df)
     assert calls == 1
+
+
+def test_unique_validator_reports_every_row_of_repeated_nulls():
+    """Unique treats nulls as equal and reports every row that holds one"""
+
+    class Schema(Protocol):
+        v: Annotated[int | None, Unique()]
+
+    df = pd.DataFrame({"v": pd.array([1, None, 2, None], dtype="Int64")})
+    with pytest.raises(ValidationError) as exc_info:
+        DataFrame[Schema](df)
+    assert str(exc_info.value) == (
+        "Column 'v': contains duplicate values\n\n"
+        "Sample invalid values (showing first 2 of 2):\n"
+        "  Row 1: <NA>\n"
+        "  Row 3: <NA>"
+    )
