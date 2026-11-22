@@ -1,6 +1,8 @@
 """Polars-specific validator implementations."""
 
+import math
 import operator
+from collections import Counter
 from collections.abc import Callable
 from datetime import date, datetime, time
 from typing import Any
@@ -65,13 +67,9 @@ def find_violation(series: "pl.Series", validator: Any, col_name: str) -> Violat
     elif isinstance(validator, (Ge, Gt, Le, Lt)):
         violation = _find_comparison(series, validator, col_name)
     elif isinstance(validator, Unique):
-        # n_unique is far cheaper than building the per-row mask, which only the error needs.
-        # Object columns support neither, so they go straight to is_duplicated for its error.
-        # For structs is_duplicated equates a null row with an all-null struct but n_unique
-        # does not, so they skip the shortcut to keep is_duplicated the only judge.
-        if series.dtype not in (pl.Object, pl.Struct) and series.n_unique() == series.len():
+        violation = _find_duplicates(series)
+        if violation is None:
             return None
-        violation = Violation(series.is_duplicated(), "contains duplicate values")
     elif isinstance(validator, In):
         violation = Violation(
             ~series.is_in(validator.allowed_values), "contains values not in allowed values"
@@ -181,6 +179,49 @@ def _find_comparison(series: "pl.Series", validator: Ge | Gt | Le | Lt, col_name
         # Polars orders NaN above every number, so only upper bounds would catch it
         invalid_mask = invalid_mask | series.is_nan()
     return Violation(invalid_mask, f"values must be {symbol} {validator.value}", str)
+
+
+_NAN = object()
+
+
+def _find_duplicates(series: "pl.Series") -> Violation | None:
+    message = "contains duplicate values"
+    # polars cannot hash Object values, so union columns compare their Python values instead
+    if series.dtype == pl.Object:
+        mask = _object_duplicate_mask(series.to_list())
+        if mask is None:
+            return None
+        return Violation(pl.Series(series.name, mask, dtype=pl.Boolean), message)
+    # n_unique is far cheaper than building the per-row mask, which only the error needs.
+    # For structs is_duplicated equates a null row with an all-null struct but n_unique
+    # does not, so they skip the shortcut to keep is_duplicated the only judge.
+    if series.dtype != pl.Struct and series.n_unique() == series.len():
+        return None
+    return Violation(series.is_duplicated(), message)
+
+
+def _object_duplicate_mask(values: list[Any]) -> list[bool] | None:
+    """Return which values occur more than once, or None if all are distinct."""
+    # NaN is never equal to itself in Python; key it as one value, as polars and pandas do
+    keys = [_NAN if isinstance(v, float) and math.isnan(v) else v for v in values]
+    try:
+        counts = Counter(keys)
+    except TypeError:
+        # Unhashable values such as lists and dicts can only be grouped by equality
+        groups: list[Any] = []
+        group_ids = []
+        for key in keys:
+            group_id = next((i for i, g in enumerate(groups) if g == key), len(groups))
+            if group_id == len(groups):
+                groups.append(key)
+            group_ids.append(group_id)
+        if len(groups) == len(keys):
+            return None
+        sizes = Counter(group_ids)
+        return [sizes[i] > 1 for i in group_ids]
+    if len(counts) == len(keys):
+        return None
+    return [counts[k] > 1 for k in keys]
 
 
 def _find_regex(series: "pl.Series", validator: Regex, col_name: str) -> Violation:
