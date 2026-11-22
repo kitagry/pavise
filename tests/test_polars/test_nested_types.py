@@ -520,6 +520,15 @@ def test_bound_validator_on_string_elements_names_the_path() -> None:
     assert exc_info.value.column_name == "tags"
 
 
+def test_bound_outside_element_integer_dtype() -> None:
+    """An element bound the dtype cannot hold is checked like a column bound"""
+
+    class Schema(Protocol):
+        v: list[Annotated[int, Range(-1, 300)]]
+
+    DataFrame[Schema](pl.DataFrame({"v": pl.Series([[1, 255]], dtype=pl.List(pl.UInt8))}))
+
+
 def test_lazyframe_rejects_bound_validator_on_string_elements() -> None:
     class Schema(Protocol):
         tags: list[Annotated[str, Range(0, 1)]]

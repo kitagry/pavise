@@ -1,6 +1,7 @@
 """Pandas-specific validator implementations."""
 
 import functools
+import numbers
 import operator
 import re
 from collections.abc import Callable, Iterable
@@ -210,6 +211,9 @@ def _compare(
     series: pd.Series, op: Callable[[Any, Any], Any], bound: Any, validator: Any, col_name: str
 ) -> pd.Series:
     """Compare series with a bound, reporting an incomparable bound as a ValidationError."""
+    if _outside_integer_dtype(series, bound):
+        # Every value lies on the same side of such a bound as 0 does, so skip comparing
+        return series.notna() & bool(op(0, bound))
     try:
         if (
             isinstance(bound, date)
@@ -223,13 +227,27 @@ def _compare(
             # Converting inside the try: pandas 1.x cannot represent dates outside the
             # nanosecond range and raises OutOfBoundsDatetime
             return op(series, pd.Timestamp(bound))
-        return op(series, bound)
+        try:
+            return op(series, bound)
+        except OverflowError:
+            # pyarrow converts an integer bound to int64 even for uint64 and float columns,
+            # whose values can lie beyond it; Python compares the values with it exactly
+            return op(series.astype(object), bound)
     except (TypeError, pd.errors.OutOfBoundsDatetime) as e:
         raise ValidationError(
             f"{type(validator).__name__} bound {bound!r} cannot be compared with "
             f"{series.dtype} values",
             column_name=col_name,
         ) from e
+
+
+def _outside_integer_dtype(series: pd.Series, bound: Any) -> bool:
+    """Whether bound is an integer that a column of the series' integer dtype cannot hold."""
+    if not isinstance(bound, numbers.Integral) or not pd.api.types.is_integer_dtype(series.dtype):
+        return False
+    # Nullable and pyarrow integer dtypes name their numpy counterpart in numpy_dtype
+    info = np.iinfo(getattr(series.dtype, "numpy_dtype", series.dtype))
+    return not info.min <= int(bound) <= info.max
 
 
 def _find_range(series: pd.Series, validator: Range, col_name: str) -> Violation:

@@ -535,6 +535,44 @@ def test_bound_validator_rejects_incomparable_bound() -> None:
         DataFrame[Schema](pl.DataFrame({"v": [datetime(2021, 1, 1)]}))
 
 
+# Bounds the column's integer dtype cannot hold: every value lies on the same side of them
+OUT_OF_DTYPE_BOUND_CASES = [
+    pytest.param(pl.UInt8, Range(0, 300), [1, None, 255], None, id="uint8-range-above"),
+    pytest.param(pl.UInt8, Range(-1, 10), [1, None, 30], [(2, 30)], id="uint8-range-below"),
+    pytest.param(pl.Int8, Range(-200, 200), [-128, 127], None, id="int8-range-both"),
+    pytest.param(pl.UInt8, Le(300), [255], None, id="uint8-le-above"),
+    pytest.param(pl.UInt8, Lt(300), [255], None, id="uint8-lt-above"),
+    pytest.param(pl.UInt8, Ge(-1), [0], None, id="uint8-ge-below"),
+    pytest.param(pl.UInt8, Gt(-1), [0], None, id="uint8-gt-below"),
+    pytest.param(pl.UInt8, Ge(300), [1, None, 2], [(0, 1), (2, 2)], id="uint8-ge-above"),
+    pytest.param(pl.UInt8, Lt(-1), [1], [(0, 1)], id="uint8-lt-below"),
+    pytest.param(pl.Int64, Le(2**70), [2**63 - 1], None, id="int64-le-above"),
+    pytest.param(pl.Int64, Ge(2**70), [1], [(0, 1)], id="int64-ge-above"),
+]
+
+
+@pytest.mark.parametrize("dtype, validator, values, invalid", OUT_OF_DTYPE_BOUND_CASES)
+def test_bound_outside_integer_dtype(
+    dtype: pl.DataType, validator: Any, values: list[Any], invalid: list[Any] | None
+) -> None:
+    """A bound the dtype cannot hold is always met or always violated, not an OverflowError"""
+
+    class Schema(Protocol):
+        v: Annotated[int | None, validator]
+
+    df = pl.DataFrame({"v": pl.Series(values, dtype=dtype)})
+    if invalid is None:
+        DataFrame[Schema](df)
+        LazyFrame[Schema](df.lazy()).collect()
+        return
+    with pytest.raises(ValidationError) as exc_info:
+        DataFrame[Schema](df)
+    assert exc_info.value.column_name == "v"
+    assert exc_info.value.invalid_samples == invalid
+    with pytest.raises(ValidationError):
+        LazyFrame[Schema](df.lazy()).collect()
+
+
 def test_lazyframe_rejects_non_numeric_column_at_construction() -> None:
     """Orderability depends only on the dtype, so LazyFrame rejects it without collecting"""
 

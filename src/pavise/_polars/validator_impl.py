@@ -1,6 +1,7 @@
 """Polars-specific validator implementations."""
 
 import math
+import numbers
 import operator
 from collections import Counter
 from collections.abc import Callable
@@ -29,6 +30,14 @@ _COMPARISONS = {
 }
 
 BOUND_VALIDATORS = (Range, *_COMPARISONS)
+
+# Bit widths of the integer dtypes; Int128 and UInt128 are missing from older polars
+_INTEGER_BITS = {
+    getattr(pl, name): bits
+    for bits in (8, 16, 32, 64, 128)
+    for name in (f"Int{bits}", f"UInt{bits}")
+    if hasattr(pl, name)
+}
 
 
 def apply_validator(series: "pl.Series", validator: Any, col_name: str) -> None:
@@ -141,6 +150,10 @@ def _compare(
     col_name: str,
 ) -> "pl.Series":
     """Compare series with a bound, reporting an incomparable bound as a ValidationError."""
+    if _outside_integer_dtype(series.dtype, bound):
+        # polars cannot cast such a bound to the dtype and raises OverflowError, but every
+        # value lies on the same side of it as 0 does
+        return series.is_not_null() & bool(op(0, bound))
     try:
         if (
             isinstance(bound, date)
@@ -157,6 +170,18 @@ def _compare(
             f"{series.dtype} values",
             column_name=col_name,
         ) from e
+
+
+def _outside_integer_dtype(dtype: "pl.DataType", bound: Any) -> bool:
+    """Whether bound is an integer that a column of the integer dtype cannot hold."""
+    bits = _INTEGER_BITS.get(dtype.base_type())
+    if bits is None or not isinstance(bound, numbers.Integral):
+        return False
+    if dtype.is_signed_integer():
+        lowest, highest = -(2 ** (bits - 1)), 2 ** (bits - 1) - 1
+    else:
+        lowest, highest = 0, 2**bits - 1
+    return not lowest <= int(bound) <= highest
 
 
 def _find_range(series: "pl.Series", validator: Range, col_name: str) -> Violation:

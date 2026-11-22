@@ -528,6 +528,55 @@ def test_bound_validator_rejects_pyarrow_non_temporal_column() -> None:
         DataFrame[Schema](df)
 
 
+@pytest.mark.parametrize(
+    "dtype",
+    ["uint8", "UInt8", "int64", "Int64", "uint8[pyarrow]", "int64[pyarrow]", "uint64[pyarrow]"],
+)
+def test_bound_outside_integer_dtype(dtype: str) -> None:
+    """A bound the dtype cannot hold is always met or always violated, not an OverflowError"""
+    if dtype.endswith("[pyarrow]"):
+        pytest.importorskip("pyarrow")
+
+    class Within(Protocol):
+        v: Annotated[int | None, Range(-1, 2**70)]
+
+    class Above(Protocol):
+        v: Annotated[int | None, Ge(2**70)]
+
+    df = pd.DataFrame({"v": pd.array([1, 2], dtype=dtype)})
+    DataFrame[Within](df)
+    with pytest.raises(ValidationError) as exc_info:
+        DataFrame[Above](df)
+    assert exc_info.value.column_name == "v"
+
+
+@pytest.mark.parametrize(
+    "dtype, validator, values, invalid",
+    [
+        pytest.param("uint64[pyarrow]", Le(2**63), [1, None, 2**64 - 1], [(2, 2**64 - 1)]),
+        pytest.param("uint64[pyarrow]", Ge(2**64 - 1), [2**64 - 1], None),
+        pytest.param("double[pyarrow]", Range(-(2**70), 2**70), [1.5, None, 1e30], [(2, 1e30)]),
+        pytest.param("float[pyarrow]", Lt(-(2**70)), [-1e30], None),
+    ],
+)
+def test_pyarrow_bound_outside_int64(
+    dtype: str, validator: Any, values: list[Any], invalid: list[Any] | None
+) -> None:
+    """pyarrow takes an integer bound as int64, yet the column may hold values beyond it"""
+    pytest.importorskip("pyarrow")
+
+    class Schema(Protocol):
+        v: Annotated[Any | None, validator]
+
+    df = pd.DataFrame({"v": pd.array(values, dtype=dtype)})
+    if invalid is None:
+        DataFrame[Schema](df)
+        return
+    with pytest.raises(ValidationError) as exc_info:
+        DataFrame[Schema](df)
+    assert exc_info.value.invalid_samples == invalid
+
+
 def test_bound_validator_rejects_incomparable_bound() -> None:
     """A bound of the wrong kind raises ValidationError instead of a bare TypeError"""
 
