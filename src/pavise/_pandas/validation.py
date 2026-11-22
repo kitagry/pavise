@@ -219,7 +219,8 @@ def _run_unique_check(df: pd.DataFrame, check: UniqueCheck) -> None:
 
     # Select the key columns first: df.duplicated(subset=...) goes through every column.
     keys = df.loc[:, columns]
-    # keep=False marks every repeated row for the error, but costs more than finding one
+    # keep=False also marks first occurrences for the error, which is slower than the
+    # default, so pay for it only once a duplicate is known to exist.
     try:
         has_duplicates = keys.duplicated().any()
     except (TypeError, NotImplementedError):
