@@ -195,6 +195,7 @@ def validate_dataframe(df: pd.DataFrame, schema: type, strict: bool = False) -> 
             if column.missing_ok and col_name not in df.columns:
                 continue
             _check_column_exists(df, col_name)
+            _check_column_unique(df, col_name)
             _check_column_type(df, col_name, column, schema, strict)
 
     schema_cols = [c for c in expected_cols if c != INDEX_COLUMN_NAME and c in df.columns]
@@ -242,7 +243,7 @@ def _run_unique_check(df: pd.DataFrame, check: UniqueCheck) -> None:
     )
     duplicates = [
         (
-            df.iloc[group.index[:1], df.columns.get_indexer(columns)].to_dict("records")[0],
+            df.iloc[group.index[:1], df.columns.get_indexer_for(columns)].to_dict("records")[0],
             df.index[group.index[:MAX_SAMPLE_SIZE]].tolist(),
             len(group),
         )
@@ -467,6 +468,18 @@ def _check_column_exists(df: pd.DataFrame, col_name: str) -> None:
     """Check if a column exists in the DataFrame."""
     if col_name not in df.columns:
         raise ValidationError("missing", column_name=col_name)
+
+
+def _check_column_unique(df: pd.DataFrame, col_name: str) -> None:
+    """Check that at most one DataFrame column has the name, so the column to validate is clear."""
+    # is_unique is cached on the Index, so frames without duplicate names pay for it once.
+    if df.columns.is_unique:
+        return
+    count = len(df.columns.get_indexer_for([col_name]))
+    if count > 1:
+        raise ValidationError(
+            f"is duplicated ({count} columns have this name)", column_name=col_name
+        )
 
 
 def _is_untyped_all_null(series: pd.Series) -> bool:

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime, time, timedelta, timezone
-from typing import Annotated, Any, Literal, Optional, Protocol, Union, cast
+from typing import Annotated, Any, Literal, Optional, Protocol, TypedDict, Union, cast
 
 import pandas as pd
 import pytest
@@ -1073,3 +1073,51 @@ def test_temporal_type_rejects_mismatched_pyarrow_column(
 
     with pytest.raises(ValidationError, match=f"Column 'v': expected {expected_type.__name__}"):
         DataFrame[schema](pd.DataFrame({"v": pd.array([value], dtype=dtype)}))
+
+
+class _StructField(TypedDict):
+    x: int
+
+
+@pytest.mark.parametrize(
+    "annotation",
+    [
+        int,
+        Any,
+        Literal[1, 2],
+        Union[int, str],
+        Annotated[int, Range(0, 10)],
+        Optional[int],
+        NotRequiredColumn[int],
+        pd.Int64Dtype,
+        _StructField,
+    ],
+)
+def test_dataframe_rejects_duplicated_schema_column(annotation: Any):
+    """A schema column held by several DataFrame columns is ambiguous to validate"""
+    schema = type("Schema", (cast(type, Protocol),), {"__annotations__": {"a": annotation}})
+    df = pd.DataFrame([[1, 2, 3]], columns=pd.Index(["a", "a", "b"]))
+
+    with pytest.raises(
+        ValidationError, match=r"^Column 'a': is duplicated \(2 columns have this name\)$"
+    ):
+        DataFrame[schema](df)
+
+
+class SimpleBSchema(Protocol):
+    b: int
+
+
+def test_dataframe_ignores_duplicated_column_outside_schema():
+    df = pd.DataFrame([[1, 2, 3]], columns=pd.Index(["a", "a", "b"]))
+
+    result = DataFrame[SimpleBSchema](df)
+
+    pd.testing.assert_frame_equal(result, df)
+
+
+def test_dataframe_strict_rejects_duplicated_column_outside_schema():
+    df = pd.DataFrame([[1, 2, 3]], columns=pd.Index(["a", "a", "b"]))
+
+    with pytest.raises(ValidationError, match=r"^Strict mode: unexpected columns \['a'\]$"):
+        DataFrame[SimpleBSchema](df, strict=True)

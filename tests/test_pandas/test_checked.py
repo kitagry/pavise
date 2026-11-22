@@ -93,3 +93,16 @@ def test_make_empty_passes_checked():
     result = DataFrame[StrictEvent].make_empty()
 
     assert len(result) == 0
+
+
+def test_checked_samples_rows_beside_duplicated_column_outside_schema():
+    df = pd.DataFrame([[1, 5, 3, 0, 0]], columns=pd.Index(["id", "start_at", "end_at", "x", "x"]))
+
+    with pytest.raises(ValidationError) as exc_info:
+        DataFrame[Event](df)
+
+    assert str(exc_info.value) == (
+        "DataFrame check 'StartBeforeEnd' failed"
+        "\n\nSample invalid values (showing first 1 of 1):"
+        "\n  Row 0: {'id': 1, 'start_at': 5, 'end_at': 3}"
+    )
