@@ -341,9 +341,9 @@ Compared with [pandera](https://pandera.readthedocs.io/) running the same checks
 |---|---:|---:|
 | pandas, 7 columns, 10 rows | 0.34 ms | 1.82 ms |
 | pandas, 7 columns, 1,000,000 rows | 50 ms | 240 ms |
-| polars, 7 columns, 10 rows | 0.14 ms | 2.81 ms |
-| polars, 7 columns, 1,000,000 rows | 1.3 ms | 4.6 ms |
-| polars, `str` with length and regex checks, 1,000,000 rows | 4.6 ms | 5.9 ms |
+| polars, 7 columns, 10 rows | 0.13 ms | 2.7 ms |
+| polars, 7 columns, 1,000,000 rows | 1.0 ms | 4.3 ms |
+| polars, `str` with length and regex checks, 1,000,000 rows | 3.6 ms | 4.6 ms |
 
 Where the difference comes from:
 
