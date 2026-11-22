@@ -65,6 +65,12 @@ def find_violation(series: "pl.Series", validator: Any, col_name: str) -> Violat
     elif isinstance(validator, (Ge, Gt, Le, Lt)):
         violation = _find_comparison(series, validator, col_name)
     elif isinstance(validator, Unique):
+        # n_unique is far cheaper than building the per-row mask, which only the error needs.
+        # Object columns support neither, so they go straight to is_duplicated for its error.
+        # For structs is_duplicated equates a null row with an all-null struct but n_unique
+        # does not, so they skip the shortcut to keep is_duplicated the only judge.
+        if series.dtype not in (pl.Object, pl.Struct) and series.n_unique() == series.len():
+            return None
         violation = Violation(series.is_duplicated(), "contains duplicate values")
     elif isinstance(validator, In):
         violation = Violation(

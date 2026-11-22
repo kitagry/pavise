@@ -529,3 +529,61 @@ def test_regex_validator_accepts_verbose_pattern_ending_in_comment():
     DataFrame[Schema](pl.DataFrame({"v": ["abc"]}))
     with pytest.raises(ValidationError, match="v.*pattern"):
         DataFrame[Schema](pl.DataFrame({"v": ["abc1"]}))
+
+
+class OptionalUserIdSchema(Protocol):
+    user_id: Annotated[int | None, Unique()]
+
+
+class FloatScoreSchema(Protocol):
+    score: Annotated[float, Unique()]
+
+
+def test_unique_validator_accepts_single_null():
+    """A single null is no duplicate"""
+    df = pl.DataFrame({"user_id": [1, None, 2]})
+    result = DataFrame[OptionalUserIdSchema](df)
+    assert isinstance(result, pl.DataFrame)
+
+
+def test_unique_validator_rejects_repeated_nulls():
+    """Nulls count as equal to each other, so two nulls are duplicates"""
+    df = pl.DataFrame({"user_id": [1, None, 2, None]})
+    with pytest.raises(ValidationError) as exc_info:
+        DataFrame[OptionalUserIdSchema](df)
+    assert exc_info.value.invalid_samples == [(1, None), (3, None)]
+
+
+def test_unique_validator_rejects_repeated_nan():
+    """NaN counts as equal to itself, so two NaNs are duplicates"""
+    df = pl.DataFrame({"score": [1.0, float("nan"), 2.0, float("nan")]})
+    with pytest.raises(ValidationError, match="score.*duplicate") as exc_info:
+        DataFrame[FloatScoreSchema](df)
+    assert [row for row, _ in exc_info.value.invalid_samples] == [1, 3]
+
+
+def test_unique_validator_rejects_duplicates_on_lazyframe_collect():
+    """LazyFrame.collect() runs the same Unique check"""
+    lf = pl.LazyFrame({"user_id": [1, 2, 1]})
+    with pytest.raises(ValidationError) as exc_info:
+        LazyFrame[UserIdSchema](lf).collect()
+    assert exc_info.value.invalid_samples == [(0, 1), (2, 1)]
+
+
+class AnyValueSchema(Protocol):
+    v: Annotated[Any | None, Unique()]
+
+
+def test_unique_validator_keeps_struct_null_judgement_consistent():
+    """A struct column reports the same duplicates whether or not other duplicates exist"""
+    struct = pl.Struct({"a": pl.Int64})
+    alone = pl.DataFrame({"v": pl.Series([{"a": None}, None], dtype=struct)})
+    with_other = pl.DataFrame(
+        {"v": pl.Series([{"a": None}, None, {"a": 1}, {"a": 1}], dtype=struct)}
+    )
+    with pytest.raises(ValidationError) as alone_info:
+        DataFrame[AnyValueSchema](alone)
+    with pytest.raises(ValidationError) as with_other_info:
+        DataFrame[AnyValueSchema](with_other)
+    assert [row for row, _ in alone_info.value.invalid_samples] == [0, 1]
+    assert [row for row, _ in with_other_info.value.invalid_samples] == [0, 1, 2, 3]
