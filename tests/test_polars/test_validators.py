@@ -587,3 +587,69 @@ def test_unique_validator_keeps_struct_null_judgement_consistent():
         DataFrame[AnyValueSchema](with_other)
     assert [row for row, _ in alone_info.value.invalid_samples] == [0, 1]
     assert [row for row, _ in with_other_info.value.invalid_samples] == [0, 1, 2, 3]
+
+
+class UnionUniqueSchema(Protocol):
+    v: Annotated[int | str | None, Unique()]
+
+
+def _object_frame(values: list[Any]) -> pl.DataFrame:
+    return pl.DataFrame({"v": pl.Series(values, dtype=pl.Object)})
+
+
+def test_unique_validator_accepts_unique_union_values():
+    """A union column is stored as Object, which polars cannot check for duplicates"""
+    result = DataFrame[UnionUniqueSchema](_object_frame([1, "a", 2, None]))
+    assert isinstance(result, pl.DataFrame)
+
+
+def test_unique_validator_rejects_duplicate_union_values():
+    with pytest.raises(ValidationError) as exc_info:
+        DataFrame[UnionUniqueSchema](_object_frame([1, "a", 1, None, "a", None]))
+    assert str(exc_info.value) == (
+        "Column 'v': contains duplicate values\n\n"
+        "Sample invalid values (showing first 5 of 6):\n"
+        "  Row 0: 1\n"
+        "  Row 1: 'a'\n"
+        "  Row 2: 1\n"
+        "  Row 3: None\n"
+        "  Row 4: 'a'"
+    )
+
+
+def test_unique_validator_rejects_duplicate_union_values_on_lazyframe_collect():
+    lf = _object_frame([1, "a", 1]).lazy()
+    with pytest.raises(ValidationError) as exc_info:
+        LazyFrame[UnionUniqueSchema](lf).collect()
+    assert exc_info.value.invalid_samples == [(0, 1), (2, 1)]
+
+
+class FloatOrStrUniqueSchema(Protocol):
+    v: Annotated[float | str, Unique()]
+
+
+def test_unique_validator_rejects_repeated_nan_in_union_values():
+    """NaN counts as equal to itself, as in non-union columns"""
+    with pytest.raises(ValidationError) as exc_info:
+        DataFrame[FloatOrStrUniqueSchema](_object_frame([float("nan"), "a", float("nan")]))
+    assert [row for row, _ in exc_info.value.invalid_samples] == [0, 2]
+
+
+def test_unique_validator_rejects_duplicate_unhashable_object_values():
+    """Lists and dicts in an Object column are compared by equality, as pandas does"""
+    with pytest.raises(ValidationError) as exc_info:
+        DataFrame[AnyValueSchema](_object_frame([[1], {"a": 1}, [2], [1], {"a": 1}]))
+    assert [row for row, _ in exc_info.value.invalid_samples] == [0, 1, 3, 4]
+
+
+def test_unique_validator_accepts_unique_unhashable_object_values():
+    result = DataFrame[AnyValueSchema](_object_frame([[1], {"a": 1}, [2], "x"]))
+    assert isinstance(result, pl.DataFrame)
+
+
+def test_unique_validator_handles_object_values_with_ambiguous_truth():
+    """pd.NA != pd.NA has no boolean value, so it must not be used to detect NaN"""
+    pd = pytest.importorskip("pandas")
+    with pytest.raises(ValidationError) as exc_info:
+        DataFrame[AnyValueSchema](_object_frame([pd.NA, 1, pd.NA]))
+    assert [row for row, _ in exc_info.value.invalid_samples] == [0, 2]
