@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime, time, timedelta, timezone
-from typing import Annotated, Any, Literal, Optional, Protocol, TypedDict, Union, cast
+from typing import Annotated, Any, ClassVar, Literal, Optional, Protocol, TypedDict, Union, cast
 
 import pandas as pd
 import pytest
@@ -1121,3 +1121,15 @@ def test_dataframe_strict_rejects_duplicated_column_outside_schema():
 
     with pytest.raises(ValidationError, match=r"^Strict mode: unexpected columns \['a'\]$"):
         DataFrame[SimpleBSchema](df, strict=True)
+
+
+class SourcedEvent(Protocol):
+    event_id: int
+    source: ClassVar[str]
+
+
+def test_class_variable_is_not_a_column():
+    """As in a dataclass schema, a ClassVar of a Protocol is no column"""
+    DataFrame[SourcedEvent](pd.DataFrame({"event_id": [1]}))
+    with pytest.raises(ValidationError, match=r"unexpected columns \['source'\]"):
+        DataFrame[SourcedEvent](pd.DataFrame({"event_id": [1], "source": ["web"]}), strict=True)

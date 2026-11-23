@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Annotated, Any, Literal, NamedTuple, Protocol, TypedDict
+from typing import Annotated, Any, ClassVar, Literal, NamedTuple, Protocol, TypedDict
 
 import pandas as pd
 import pytest
@@ -595,3 +595,23 @@ def test_named_tuple_column_reports_supported_struct_schemas() -> None:
         r"\(struct schemas must be a Protocol, TypedDict or dataclass\)$",
     ):
         DataFrame[Schema](arrow_frame("address", [ADDRESS], ADDRESS_TYPE))
+
+
+class SourcedEvent(Protocol):
+    event_id: int
+    source: ClassVar[str]
+
+
+class SourcedEventSchema(Protocol):
+    event: SourcedEvent
+
+
+def test_struct_class_variable_is_not_a_field() -> None:
+    df = pd.DataFrame(
+        {
+            "event": pd.Series(
+                [{"event_id": 1}], dtype=pd.ArrowDtype(pa.struct([("event_id", pa.int64())]))
+            )
+        }
+    )
+    DataFrame[SourcedEventSchema](df)

@@ -51,3 +51,8 @@ class UserData:
 class KindKeyedUserData(UniqueKeys[Key[typing.Literal["kind"]]]):
     id: int
     kind: typing.ClassVar[str] = "user"
+
+
+class SourcedEvent(typing.Protocol):
+    event_id: int
+    source: typing.ClassVar[str]

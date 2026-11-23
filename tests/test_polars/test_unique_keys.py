@@ -113,6 +113,11 @@ class InitVarKeyed(UniqueKeys[Key[Literal["id", "check"]]]):
     check: InitVar[bool] = False
 
 
+class ClassVarKeyedProtocol(UniqueKeys[Key[Literal["kind"]]], Protocol):
+    id: int
+    kind: ClassVar[str]
+
+
 class AnnotatedBase:
     id: int
 
@@ -127,6 +132,7 @@ class NonDataclassBaseKeyed(AnnotatedBase, UniqueKeys[Key[Literal["id"]]]):
     [
         pytest.param(ClassVarKeyed, "kind", id="ClassVar"),
         pytest.param(InitVarKeyed, "check", id="InitVar"),
+        pytest.param(ClassVarKeyedProtocol, "kind", id="Protocol-ClassVar"),
         pytest.param(future_annotations_schemas.KindKeyedUserData, "kind", id="string-ClassVar"),
         pytest.param(NonDataclassBaseKeyed, "id", id="non-dataclass-base"),
     ],

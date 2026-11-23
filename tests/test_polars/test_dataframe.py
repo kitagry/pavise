@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime, timedelta
-from typing import Annotated, Any, Literal, Optional, Protocol, Union, cast
+from typing import Annotated, Any, ClassVar, Literal, Optional, Protocol, Union, cast
 
 import pytest
 
@@ -792,3 +792,15 @@ def test_empty_creates_empty_dataframe_with_pep604_union_types():
         }
     )
     assert result.equals(expected)
+
+
+class SourcedEvent(Protocol):
+    event_id: int
+    source: ClassVar[str]
+
+
+def test_class_variable_is_not_a_column():
+    """As in a dataclass schema, a ClassVar of a Protocol is no column"""
+    DataFrame[SourcedEvent](pl.DataFrame({"event_id": [1]}))
+    with pytest.raises(ValidationError, match=r"unexpected columns \['source'\]"):
+        DataFrame[SourcedEvent](pl.DataFrame({"event_id": [1], "source": ["web"]}), strict=True)

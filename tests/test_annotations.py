@@ -1,3 +1,4 @@
+import sys
 from dataclasses import InitVar, dataclass, field
 from typing import (
     Annotated,
@@ -438,6 +439,79 @@ def test_schema_columns_tell_which_columns_may_be_missing(schema: type, expected
     assert {name: missing_ok for name, (_, missing_ok) in schema_columns(schema).items()} == (
         expected
     )
+
+
+class SourcedEvent(Protocol):
+    event_id: int
+    source: ClassVar[str]
+    limit: ClassVar[Annotated[int, Range(0, 10)]]
+    scale: Annotated[ClassVar[int], Range(0, 10)]
+    label: "ClassVar[str]"
+    version: ClassVar = 1
+
+
+class SourcedEventPlain:
+    event_id: int
+    source: ClassVar[str]
+
+
+class SourcedEventChild(SourcedEvent, Protocol):
+    note: str
+
+
+@pytest.mark.parametrize(
+    "schema, expected",
+    [
+        (SourcedEvent, ["event_id"]),
+        (SourcedEventPlain, ["event_id"]),
+        (SourcedEventChild, ["event_id", "note"]),
+        (future_annotations_schemas.SourcedEvent, ["event_id"]),
+    ],
+)
+def test_schema_columns_leave_out_class_variables(schema: type, expected: list[str]):
+    """As in a dataclass, a ClassVar is no column"""
+    assert sorted(schema_columns(schema)) == expected
+
+
+@pytest.mark.skipif(
+    sys.version_info < (3, 14),
+    reason="get_type_hints rejects a ClassVar in a TypedDict before Python 3.14",
+)
+def test_schema_columns_rejects_class_variable_in_typeddict():
+    class WithClassVar(TypedDict):
+        city: str
+        kind: "ClassVar[str]"  # pyright: ignore[reportInvalidTypeForm]
+
+    with pytest.raises(
+        ValidationError, match=r"^Column 'kind': ClassVar cannot be used in a TypedDict$"
+    ):
+        schema_columns(WithClassVar)
+
+
+class AnnotatedClassVarDict(TypedDict):
+    city: str
+    kind: Annotated[ClassVar[int], Range(0, 10)]  # pyright: ignore[reportInvalidTypeForm]
+
+
+class NotRequiredClassVarDict(TypedDict):
+    city: str
+    kind: NotRequired[Annotated[ClassVar[int], Range(0, 10)]]  # pyright: ignore[reportInvalidTypeForm]
+
+
+class ReadOnlyClassVarDict(TypedDict):
+    city: str
+    kind: ReadOnly[Annotated[ClassVar[int], Range(0, 10)]]  # pyright: ignore[reportInvalidTypeForm]
+
+
+@pytest.mark.parametrize(
+    "schema", [AnnotatedClassVarDict, NotRequiredClassVarDict, ReadOnlyClassVarDict]
+)
+def test_schema_columns_rejects_annotated_class_variable_in_typeddict(schema: type):
+    """get_type_hints lets a ClassVar inside Annotated through on every Python version"""
+    with pytest.raises(
+        ValidationError, match=r"^Column 'kind': ClassVar cannot be used in a TypedDict$"
+    ):
+        schema_columns(schema)
 
 
 def test_schema_columns_remove_typeddict_qualifiers():
