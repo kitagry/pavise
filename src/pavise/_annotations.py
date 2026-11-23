@@ -17,6 +17,7 @@ from dataclasses import dataclass
 from typing import (
     Annotated,
     Any,
+    ClassVar,
     ForwardRef,
     Literal,
     Union,
@@ -197,7 +198,17 @@ def schema_columns(schema: type) -> dict[str, tuple[Any, bool]]:
 
 def _protocol_columns(schema: type) -> dict[str, tuple[Any, bool]]:
     hints = get_type_hints(schema, include_extras=True)
-    return {name: _column(name, hint) for name, hint in hints.items()}
+    # Left out as dataclasses.fields() leaves it out. Inside Annotated too, which type checkers
+    # read as a ClassVar although a dataclass would make it a field.
+    return {
+        name: _column(name, hint) for name, hint in hints.items() if not _is_class_variable(hint)
+    }
+
+
+def _is_class_variable(hint: Any) -> bool:
+    if get_origin(hint) is Annotated:
+        hint = get_args(hint)[0]
+    return hint is ClassVar or get_origin(hint) is ClassVar
 
 
 def _dataclass_columns(schema: type) -> dict[str, tuple[Any, bool]]:
@@ -224,6 +235,10 @@ def _typeddict_columns(schema: type) -> dict[str, tuple[Any, bool]]:
     columns = {}
     for name, hint in get_type_hints(schema, include_extras=True).items():
         hint, not_required = _strip_typeddict_qualifiers(hint)
+        # Rejected like misplaced qualifiers. get_type_hints lets one through inside Annotated,
+        # and on Python 3.14 a string one.
+        if _is_class_variable(hint):
+            raise ValidationError("ClassVar cannot be used in a TypedDict", column_name=name)
         if _is_not_required_column(hint):
             raise ValidationError(
                 "NotRequiredColumn cannot be used in a TypedDict; use NotRequired",

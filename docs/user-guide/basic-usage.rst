@@ -35,6 +35,9 @@ For internal functions, use type annotations without runtime overhead:
        # Type checker ensures schema compliance
        return df
 
+Each annotation of the ``Protocol`` is a column, except a ``ClassVar``, which is not a column
+(as in a :ref:`dataclass schema <typeddict-and-dataclass-schemas>`).
+
 Runtime Validation
 ~~~~~~~~~~~~~~~~~~
 

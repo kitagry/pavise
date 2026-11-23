@@ -272,9 +272,9 @@ against, its keys were checked.
 
 Keys must be written as ``Key[Literal[...]]``: a bare ``Literal`` such as
 ``UniqueKeys[Literal["id"]]`` is a type error, and raises ``TypeError`` when the class is
-defined. A column that is not in the schema raises ``ValueError``. In a dataclass, a
-``ClassVar``, an ``InitVar`` or an annotation of a base class that is not a dataclass is not a
-column, so a key naming one raises ``ValueError`` when a DataFrame is validated against the
+defined. A column that is not in the schema raises ``ValueError``. A ``ClassVar`` is not a
+column, nor, in a dataclass, is an ``InitVar`` or an annotation of a base class that is not a
+dataclass, so a key naming one raises ``ValueError`` when a DataFrame is validated against the
 schema.
 
 Same Columns, Different Keys

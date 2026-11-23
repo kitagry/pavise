@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Annotated, Any, Literal, NamedTuple, Protocol, TypedDict
+from typing import Annotated, Any, ClassVar, Literal, NamedTuple, Protocol, TypedDict
 
 import polars as pl
 import pytest
@@ -779,3 +779,17 @@ def test_same_shaped_typeddict_structs_are_interchangeable() -> None:
     # pyright verifies this call: TypedDicts with the same keys are the same type to it
     df = DataFrame[SameShapedAddressDictSchema](pl.DataFrame({"address": [ADDRESS]}))
     assert count_addresses(df) == 1
+
+
+class SourcedEvent(Protocol):
+    event_id: int
+    source: ClassVar[str]
+
+
+class SourcedEventSchema(Protocol):
+    event: SourcedEvent
+
+
+def test_struct_class_variable_is_not_a_field() -> None:
+    df = pl.DataFrame({"event": [{"event_id": 1}]})
+    DataFrame[SourcedEventSchema](df)

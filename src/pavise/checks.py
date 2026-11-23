@@ -333,8 +333,8 @@ def unique(*columns: str) -> Callable[[T], T]:
 
     Rows whose key columns hold nulls in the same places count as duplicates, as with the
     column-level ``Unique()`` validator. Column names are checked against the schema when
-    the decorator is applied. In a dataclass, a ``ClassVar``, an ``InitVar`` or an
-    annotation of a base class that is not a dataclass is not a column, and a key naming
+    the decorator is applied. A ``ClassVar`` is not a column, nor, in a dataclass, is an
+    ``InitVar`` or an annotation of a base class that is not a dataclass, and a key naming
     one raises when a DataFrame is validated.
 
     Example::
@@ -401,8 +401,8 @@ def check_key_columns(schema: type, columns: Collection[str]) -> None:
     """Raise if a unique key of ``schema`` names something that is not one of its ``columns``.
 
     The names are first checked against the annotations, before a dataclass decorator has
-    run and so before its fields are known. A ``ClassVar``, an ``InitVar`` or an annotation
-    of a base class that is not a dataclass passes that check but is no dataclass field:
+    run and so before its fields are known. A ``ClassVar``, or in a dataclass an ``InitVar`` or
+    an annotation of a base class that is not a dataclass, passes that check but is no column:
     without this, the key would be skipped like an absent column that may be missing.
     """
     if schema in _KEYS_CHECKED:
